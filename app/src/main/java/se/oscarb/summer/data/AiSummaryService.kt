@@ -98,6 +98,58 @@ class AiSummaryService(private val appContext: Context) {
     generateWithSelectedBackend(prompt, settings)
   }
 
+  /**
+   * Writes a spoken-word "podcast" script covering the user's saved links. The script is
+   * plain narration (no Markdown headings, bullets, or symbols) so it can be fed straight
+   * into a text-to-speech engine.
+   */
+  suspend fun generatePodcastScript(
+    websites: List<SavedWebsite>,
+    settings: AppSettings
+  ): Result<String> = withContext(Dispatchers.IO) {
+    if (websites.isEmpty()) {
+      return@withContext Result.failure(IllegalArgumentException("No saved websites to turn into a podcast."))
+    }
+
+    val itemsBlock = websites.mapIndexed { index, site ->
+      val body = site.summary?.let { "Existing Summary:\n$it" }
+        ?: site.extractedContent.take(3_000).ifBlank { "(Title/URL only)" }
+      """
+      ---
+      ARTICLE [${index + 1}]
+      Title: ${site.title}
+      Domain: ${site.domain}
+      URL: ${site.url}
+      Content:
+      $body
+      """.trimIndent()
+    }.joinToString("\n\n")
+
+    val prompt = """
+      You are the host of a short, friendly daily podcast called "Summer Catch Me Up".
+      Write a spoken-word episode that helps the listener catch up on the ${websites.size} link(s) they saved.
+
+      Rules:
+      - Write ONLY narration meant to be read aloud by a text-to-speech voice.
+      - Do NOT use Markdown, bullet points, asterisks, headings, hashtags, or emoji.
+      - Do NOT include stage directions, speaker labels, sound effects, or bracketed notes.
+      - Write numbers, symbols, and abbreviations the way they should be spoken.
+      - Use short, natural sentences and a warm, upbeat, conversational tone.
+
+      Structure the episode:
+      1. A brief intro greeting and a one-sentence overview of what is covered today.
+      2. One short segment per saved link: name the source, then give the key takeaway in two or three sentences.
+      3. A short closing line wrapping up the episode.
+
+      Target roughly 90 to 150 words per link so the episode stays under about five minutes.
+
+      Saved Links:
+      $itemsBlock
+    """.trimIndent()
+
+    generateWithSelectedBackend(prompt, settings)
+  }
+
   private suspend fun generateWithSelectedBackend(
     prompt: String,
     settings: AppSettings

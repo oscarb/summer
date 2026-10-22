@@ -40,9 +40,13 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -68,6 +72,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
@@ -107,7 +112,14 @@ import se.oscarb.summer.data.AiBackend
 import se.oscarb.summer.data.AppSettings
 import se.oscarb.summer.data.DigestEntry
 import se.oscarb.summer.data.LinkFilter
+import se.oscarb.summer.data.PodcastEpisode
+import se.oscarb.summer.data.PodcastPlaybackState
+import se.oscarb.summer.data.PodcastStatus
+import se.oscarb.summer.data.PodcastVoiceCatalog
 import se.oscarb.summer.data.SavedWebsite
+import se.oscarb.summer.data.SummerRepository
+import se.oscarb.summer.data.TtsEngineOption
+import se.oscarb.summer.data.TtsVoiceOption
 import se.oscarb.summer.util.ExternalBrowserLauncher
 import java.text.DateFormat
 import java.util.Date
@@ -133,6 +145,13 @@ fun MainScreen(
     }
   }
 
+  LaunchedEffect(state.podcastError) {
+    state.podcastError?.let { errorMsg ->
+      snackbarHostState.showSnackbar(errorMsg)
+      viewModel.clearPodcastError()
+    }
+  }
+
   Scaffold(
     modifier = modifier.fillMaxSize(),
     snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -149,6 +168,7 @@ fun MainScreen(
               text = when (selectedTab) {
                 0 -> "${state.unreadCount} unread website(s) • ${state.settings.selectedBackend.displayName}"
                 1 -> "${state.digests.size} saved AI briefing(s)"
+                2 -> "${state.podcasts.size} podcast episode(s) • tap to listen"
                 else -> "AI Providers & Browser Setup"
               },
               style = MaterialTheme.typography.labelSmall,
@@ -172,29 +192,41 @@ fun MainScreen(
       )
     },
     floatingActionButton = {
-      if (selectedTab == 0 && state.unreadCount > 0) {
-        ExtendedFloatingActionButton(
-          onClick = { viewModel.triggerCatchMeUpDigest() },
-          icon = {
-            if (state.isGeneratingDigest) {
-              CircularProgressIndicator(
-                modifier = Modifier.size(20.dp),
-                strokeWidth = 2.dp
-              )
-            } else {
-              Icon(Icons.Default.AutoAwesome, contentDescription = null)
-            }
-          },
-          text = {
-            Text(
+      Column(
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+      ) {
+        if (selectedTab == 2 && state.podcasts.isNotEmpty()) {
+          ExtendedFloatingActionButton(
+            onClick = { viewModel.generatePodcastFromUnread() },
+            icon = { Icon(Icons.Default.Podcasts, contentDescription = null) },
+            text = { Text("New Podcast (${state.unreadCount})") }
+          )
+        }
+        if (selectedTab == 0 && state.unreadCount > 0) {
+          ExtendedFloatingActionButton(
+            onClick = { viewModel.triggerCatchMeUpDigest() },
+            icon = {
               if (state.isGeneratingDigest) {
-                "Summarizing ${state.unreadCount}..."
+                CircularProgressIndicator(
+                  modifier = Modifier.size(20.dp),
+                  strokeWidth = 2.dp
+                )
               } else {
-                "Catch Me Up (${state.unreadCount})"
+                Icon(Icons.Default.AutoAwesome, contentDescription = null)
               }
-            )
-          }
-        )
+            },
+            text = {
+              Text(
+                if (state.isGeneratingDigest) {
+                  "Summarizing ${state.unreadCount}..."
+                } else {
+                  "Catch Me Up (${state.unreadCount})"
+                }
+              )
+            }
+          )
+        }
       }
     },
     bottomBar = {
@@ -214,6 +246,12 @@ fun MainScreen(
         NavigationBarItem(
           selected = selectedTab == 2,
           onClick = { selectedTab = 2 },
+          icon = { Icon(Icons.Default.Podcasts, contentDescription = null) },
+          label = { Text("Podcasts") }
+        )
+        NavigationBarItem(
+          selected = selectedTab == 3,
+          onClick = { selectedTab = 3 },
           icon = { Icon(Icons.Default.Settings, contentDescription = null) },
           label = { Text("Settings") }
         )
@@ -251,10 +289,42 @@ fun MainScreen(
             viewModel.triggerCatchMeUpDigest()
           }
         )
-        2 -> SettingsTab(
+        2 -> PodcastsTab(
+          podcasts = state.podcasts,
+          playback = state.podcastPlayback,
+          onOpenEpisode = viewModel::openPodcastEpisode,
+          onDeleteEpisode = viewModel::deletePodcast,
+          onPlayEpisode = viewModel::playPodcast,
+          onPauseEpisode = viewModel::pausePodcast,
+          onResumeEpisode = viewModel::resumePodcast,
+          onStopPlayback = viewModel::stopPodcast,
+          onGenerateNew = viewModel::generatePodcastFromUnread
+        )
+        else -> SettingsTab(
           settings = state.settings,
           onUpdateSettings = viewModel::updateSettings
         )
+      }
+
+      // Mini player, shown while audio is playing and the full sheet is closed.
+      state.podcastPlayback.episodeId?.let { playingId ->
+        if (state.activePodcastSheet == null) {
+          val episode = state.podcasts.firstOrNull { it.id == playingId }
+          if (episode != null) {
+            MiniPodcastPlayer(
+              episode = episode,
+              playback = state.podcastPlayback,
+              onOpen = { viewModel.openPodcastEpisode(episode) },
+              onTogglePlayPause = {
+                if (state.podcastPlayback.isPlaying) viewModel.pausePodcast() else viewModel.resumePodcast()
+              },
+              onStop = viewModel::stopPodcast,
+              modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 84.dp, start = 12.dp, end = 12.dp)
+            )
+          }
+        }
       }
     }
   }
@@ -278,7 +348,49 @@ fun MainScreen(
         onMarkAllArchived = {
           viewModel.markDigestSourcesArchived(activeDigest)
         },
+        onListenAsPodcast = {
+          viewModel.generatePodcastFromWebsites(activeDigest.sourceWebsites.map { source ->
+            state.websites.firstOrNull { it.id == source.id }
+              ?: SavedWebsite(
+                id = source.id,
+                url = source.url,
+                domain = source.domain,
+                title = source.title,
+                faviconUrl = source.faviconUrl,
+                createdAt = activeDigest.createdAt,
+                updatedAt = activeDigest.createdAt
+              )
+          })
+          viewModel.dismissDigestSheet()
+        },
         onDismiss = viewModel::dismissDigestSheet
+      )
+    }
+  }
+
+  // Podcast Episode Modal Bottom Sheet
+  state.activePodcastSheet?.let { episode ->
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+      onDismissRequest = viewModel::dismissPodcastSheet,
+      sheetState = sheetState
+    ) {
+      PodcastEpisodeSheetContent(
+        episode = episode,
+        playback = state.podcastPlayback,
+        onOpenSourceUrl = { url ->
+          ExternalBrowserLauncher.openInExternalBrowser(
+            context = context,
+            url = url,
+            preferredBrowserPackage = state.settings.preferredBrowserPackage
+          )
+        },
+        onPlay = { viewModel.playPodcast(episode.id) },
+        onPause = viewModel::pausePodcast,
+        onResume = viewModel::resumePodcast,
+        onStop = viewModel::stopPodcast,
+        onDelete = { viewModel.deletePodcast(episode.id) },
+        onDismiss = viewModel::dismissPodcastSheet
       )
     }
   }
@@ -752,6 +864,7 @@ private fun CatchMeUpDigestSheetContent(
   digest: DigestEntry,
   onOpenSourceUrl: (String) -> Unit,
   onMarkAllArchived: () -> Unit,
+  onListenAsPodcast: () -> Unit,
   onDismiss: () -> Unit
 ) {
   val dateStr = remember(digest.createdAt) {
@@ -836,6 +949,17 @@ private fun CatchMeUpDigestSheetContent(
     }
 
     Spacer(modifier = Modifier.height(20.dp))
+
+    Button(
+      onClick = onListenAsPodcast,
+      modifier = Modifier.fillMaxWidth()
+    ) {
+      Icon(Icons.Default.Podcasts, contentDescription = null, modifier = Modifier.size(18.dp))
+      Spacer(Modifier.width(8.dp))
+      Text("Listen as Podcast")
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
 
     Row(
       modifier = Modifier.fillMaxWidth(),
@@ -953,6 +1077,451 @@ private fun DigestsHistoryTab(
             )
           }
         }
+      }
+    }
+  }
+}
+
+@Composable
+private fun PodcastsTab(
+  podcasts: List<PodcastEpisode>,
+  playback: PodcastPlaybackState,
+  onOpenEpisode: (PodcastEpisode) -> Unit,
+  onDeleteEpisode: (String) -> Unit,
+  onPlayEpisode: (String) -> Unit,
+  onPauseEpisode: () -> Unit,
+  onResumeEpisode: () -> Unit,
+  onStopPlayback: () -> Unit,
+  onGenerateNew: () -> Unit
+) {
+  if (podcasts.isEmpty()) {
+    Column(
+      modifier = Modifier
+        .fillMaxSize()
+        .padding(32.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+      verticalArrangement = Arrangement.Center
+    ) {
+      Icon(
+        imageVector = Icons.Default.Podcasts,
+        contentDescription = null,
+        modifier = Modifier.size(56.dp),
+        tint = MaterialTheme.colorScheme.primary
+      )
+      Spacer(modifier = Modifier.height(16.dp))
+      Text(
+        text = "No podcast episodes yet",
+        style = MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.Bold
+      )
+      Spacer(modifier = Modifier.height(8.dp))
+      Text(
+        text = "Turn your saved links into a listenable briefing. Tap \"New Podcast\" to generate one, " +
+          "or use \"Listen as Podcast\" from any Catch Me Up digest.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+      )
+      Spacer(modifier = Modifier.height(20.dp))
+      Button(onClick = onGenerateNew) {
+        Icon(Icons.Default.Podcasts, contentDescription = null)
+        Spacer(Modifier.width(8.dp))
+        Text("Generate Podcast Now")
+      }
+    }
+  } else {
+    LazyColumn(
+      modifier = Modifier.fillMaxSize(),
+      contentPadding = PaddingValues(16.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+      items(podcasts, key = { it.id }) { episode ->
+        val dateStr = remember(episode.createdAt) {
+          DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+            .format(Date(episode.createdAt))
+        }
+        val isCurrent = playback.episodeId == episode.id
+        ElevatedCard(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpenEpisode(episode) },
+          shape = RoundedCornerShape(16.dp)
+        ) {
+          Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.SpaceBetween,
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Column(modifier = Modifier.weight(1f)) {
+                Text(
+                  text = episode.title,
+                  style = MaterialTheme.typography.titleMedium,
+                  fontWeight = FontWeight.Bold,
+                  maxLines = 2,
+                  overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                  text = "$dateStr • ${episode.sourceWebsites.size} link(s) • ${episode.providerName}",
+                  style = MaterialTheme.typography.labelMedium,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+              }
+              IconButton(onClick = { onDeleteEpisode(episode.id) }) {
+                Icon(Icons.Default.DeleteOutline, contentDescription = "Delete episode")
+              }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            PodcastStatusBadge(episode)
+
+            if (episode.status == PodcastStatus.READY || episode.status == PodcastStatus.COMPLETED) {
+              Spacer(modifier = Modifier.height(12.dp))
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                Button(
+                  onClick = {
+                    when {
+                      isCurrent && playback.isPlaying -> onPauseEpisode()
+                      isCurrent -> onResumeEpisode()
+                      else -> onPlayEpisode(episode.id)
+                    }
+                  }
+                ) {
+                  Icon(
+                    imageVector = if (isCurrent && playback.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                  )
+                  Spacer(Modifier.width(6.dp))
+                  Text(if (isCurrent && playback.isPlaying) "Pause" else "Play")
+                }
+                if (isCurrent) {
+                  OutlinedButton(onClick = onStopPlayback) {
+                    Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Stop")
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun PodcastStatusBadge(episode: PodcastEpisode) {
+  val (label, color) = when (episode.status) {
+    PodcastStatus.WRITING_SCRIPT -> "Writing script…" to MaterialTheme.colorScheme.tertiaryContainer
+    PodcastStatus.SYNTHESIZING -> "Generating audio…" to MaterialTheme.colorScheme.tertiaryContainer
+    PodcastStatus.READY -> "Ready to listen" to MaterialTheme.colorScheme.primaryContainer
+    PodcastStatus.COMPLETED -> "Finished" to MaterialTheme.colorScheme.surfaceVariant
+    PodcastStatus.FAILED -> "Failed" to MaterialTheme.colorScheme.errorContainer
+  }
+  val inProgress = episode.status == PodcastStatus.WRITING_SCRIPT || episode.status == PodcastStatus.SYNTHESIZING
+
+  Row(verticalAlignment = Alignment.CenterVertically) {
+    if (inProgress) {
+      CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+      Spacer(Modifier.width(8.dp))
+    }
+    Surface(color = color, shape = CircleShape) {
+      Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall,
+        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+      )
+    }
+  }
+  if (episode.status == PodcastStatus.FAILED && !episode.error.isNullOrBlank()) {
+    Spacer(Modifier.height(4.dp))
+    Text(
+      text = episode.error,
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.error
+    )
+  }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PodcastEpisodeSheetContent(
+  episode: PodcastEpisode,
+  playback: PodcastPlaybackState,
+  onOpenSourceUrl: (String) -> Unit,
+  onPlay: () -> Unit,
+  onPause: () -> Unit,
+  onResume: () -> Unit,
+  onStop: () -> Unit,
+  onDelete: () -> Unit,
+  onDismiss: () -> Unit
+) {
+  val dateStr = remember(episode.createdAt) {
+    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(episode.createdAt))
+  }
+  val isCurrent = playback.episodeId == episode.id
+  val canPlay = episode.status == PodcastStatus.READY || episode.status == PodcastStatus.COMPLETED
+
+  Column(
+    modifier = Modifier
+      .fillMaxWidth()
+      .verticalScroll(rememberScrollState())
+      .padding(horizontal = 20.dp, vertical = 8.dp)
+  ) {
+    Text(
+      text = "🎧 ${episode.title}",
+      style = MaterialTheme.typography.headlineSmall,
+      fontWeight = FontWeight.Bold
+    )
+    Text(
+      text = "${episode.sourceWebsites.size} link(s) • ${episode.providerName} • $dateStr",
+      style = MaterialTheme.typography.labelMedium,
+      color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    when (episode.status) {
+      PodcastStatus.WRITING_SCRIPT, PodcastStatus.SYNTHESIZING -> {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+          Spacer(Modifier.width(12.dp))
+          Text(
+            text = if (episode.status == PodcastStatus.WRITING_SCRIPT) {
+              "Writing the podcast script…"
+            } else {
+              "Generating audio on device…"
+            },
+            style = MaterialTheme.typography.bodyMedium
+          )
+        }
+      }
+      PodcastStatus.FAILED -> {
+        Surface(
+          color = MaterialTheme.colorScheme.errorContainer,
+          shape = RoundedCornerShape(12.dp),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Text(
+            text = episode.error ?: "Podcast generation failed.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            modifier = Modifier.padding(12.dp)
+          )
+        }
+      }
+      else -> {
+        if (!episode.error.isNullOrBlank()) {
+          Surface(
+            color = MaterialTheme.colorScheme.tertiaryContainer,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Text(
+              text = episode.error,
+              style = MaterialTheme.typography.bodySmall,
+              modifier = Modifier.padding(12.dp)
+            )
+          }
+          Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(12.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Button(
+            onClick = {
+              when {
+                isCurrent && playback.isPlaying -> onPause()
+                isCurrent -> onResume()
+                else -> onPlay()
+              }
+            },
+            enabled = canPlay,
+            modifier = Modifier.weight(1f)
+          ) {
+            Icon(
+              imageVector = if (isCurrent && playback.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+              contentDescription = null,
+              modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(if (isCurrent && playback.isPlaying) "Pause" else "Play")
+          }
+          if (isCurrent) {
+            OutlinedButton(onClick = onStop) {
+              Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
+              Spacer(Modifier.width(6.dp))
+              Text("Stop")
+            }
+          }
+        }
+
+        if (isCurrent && playback.totalParts > 0) {
+          Spacer(modifier = Modifier.height(12.dp))
+          LinearProgressIndicator(
+            progress = { (playback.partIndex + 1f) / playback.totalParts.toFloat() },
+            modifier = Modifier.fillMaxWidth()
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          Text(
+            text = "Part ${playback.partIndex + 1} of ${playback.totalParts}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+          )
+        }
+      }
+    }
+
+    if (episode.scriptMarkdown.isNotBlank()) {
+      Spacer(modifier = Modifier.height(20.dp))
+      Text(
+        text = "Script",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold
+      )
+      Spacer(modifier = Modifier.height(8.dp))
+      Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Text(
+          text = episode.scriptMarkdown,
+          style = MaterialTheme.typography.bodyMedium,
+          modifier = Modifier.padding(16.dp)
+        )
+      }
+    }
+
+    if (episode.sourceWebsites.isNotEmpty()) {
+      Spacer(modifier = Modifier.height(20.dp))
+      Text(
+        text = "Sources in this episode (tap to open in browser)",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold
+      )
+      Spacer(modifier = Modifier.height(8.dp))
+      FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        episode.sourceWebsites.forEachIndexed { index, source ->
+          AssistChip(
+            onClick = { onOpenSourceUrl(source.url) },
+            leadingIcon = {
+              AsyncImage(
+                model = source.faviconUrl,
+                contentDescription = null,
+                modifier = Modifier
+                  .size(16.dp)
+                  .clip(CircleShape)
+              )
+            },
+            label = {
+              Text(
+                text = "[${index + 1}] ${source.domain}",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+              )
+            }
+          )
+        }
+      }
+    }
+
+    Spacer(modifier = Modifier.height(20.dp))
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+      OutlinedButton(
+        onClick = onDelete,
+        modifier = Modifier.weight(1f)
+      ) {
+        Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text("Delete")
+      }
+      Button(
+        onClick = onDismiss,
+        modifier = Modifier.weight(1f)
+      ) {
+        Text("Close")
+      }
+    }
+
+    Spacer(modifier = Modifier.height(28.dp))
+  }
+}
+
+@Composable
+private fun MiniPodcastPlayer(
+  episode: PodcastEpisode,
+  playback: PodcastPlaybackState,
+  onOpen: () -> Unit,
+  onTogglePlayPause: () -> Unit,
+  onStop: () -> Unit,
+  modifier: Modifier = Modifier
+) {
+  Surface(
+    modifier = modifier.fillMaxWidth(),
+    shape = RoundedCornerShape(16.dp),
+    color = MaterialTheme.colorScheme.primaryContainer,
+    shadowElevation = 6.dp
+  ) {
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .clickable(onClick = onOpen)
+        .padding(horizontal = 12.dp, vertical = 8.dp),
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Icon(
+        imageVector = Icons.Default.Podcasts,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onPrimaryContainer
+      )
+      Spacer(modifier = Modifier.width(12.dp))
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+          text = episode.title,
+          style = MaterialTheme.typography.bodyMedium,
+          fontWeight = FontWeight.SemiBold,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+          color = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        if (playback.totalParts > 0) {
+          Text(
+            text = "Part ${playback.partIndex + 1} of ${playback.totalParts}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onPrimaryContainer
+          )
+        }
+      }
+      IconButton(onClick = onTogglePlayPause) {
+        Icon(
+          imageVector = if (playback.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+          contentDescription = if (playback.isPlaying) "Pause" else "Play",
+          tint = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+      }
+      IconButton(onClick = onStop) {
+        Icon(
+          imageVector = Icons.Default.Stop,
+          contentDescription = "Stop",
+          tint = MaterialTheme.colorScheme.onPrimaryContainer
+        )
       }
     }
   }
@@ -1274,6 +1843,147 @@ private fun SettingsTab(
           }
         }
       }
+    }
+
+    // Podcast Voice Card
+    PodcastVoiceSettingsCard(settings = settings, onUpdateSettings = onUpdateSettings)
+  }
+}
+
+@Composable
+private fun PodcastVoiceSettingsCard(
+  settings: AppSettings,
+  onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit
+) {
+  val context = LocalContext.current
+  val engines = remember {
+    listOf(TtsEngineOption("", "System default")) + PodcastVoiceCatalog.engines(context)
+  }
+  var voices by remember { mutableStateOf<List<TtsVoiceOption>>(emptyList()) }
+  var voicesLoading by remember { mutableStateOf(true) }
+
+  LaunchedEffect(settings.podcastTtsEngine) {
+    voicesLoading = true
+    voices = SummerRepository.getInstance(context).availablePodcastVoices()
+    voicesLoading = false
+  }
+
+  OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.padding(16.dp)) {
+      Text(
+        text = "Podcast Voice",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold
+      )
+      Text(
+        text = "Choose the text-to-speech engine, voice, and speed used to read Catch Me Up podcasts aloud.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+      )
+      Spacer(modifier = Modifier.height(12.dp))
+
+      Text("Engine", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+      engines.forEach { engine ->
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onUpdateSettings { it.copy(podcastTtsEngine = engine.packageName) } }
+            .padding(vertical = 4.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          RadioButton(
+            selected = settings.podcastTtsEngine == engine.packageName,
+            onClick = { onUpdateSettings { it.copy(podcastTtsEngine = engine.packageName) } }
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Text(engine.label, style = MaterialTheme.typography.bodyMedium)
+        }
+      }
+
+      Spacer(modifier = Modifier.height(8.dp))
+      Text("Voice", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .clickable { onUpdateSettings { it.copy(podcastVoiceName = "") } }
+          .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        RadioButton(
+          selected = settings.podcastVoiceName.isBlank(),
+          onClick = { onUpdateSettings { it.copy(podcastVoiceName = "") } }
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("Engine default voice", style = MaterialTheme.typography.bodyMedium)
+      }
+
+      if (voicesLoading) {
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+          Spacer(Modifier.width(8.dp))
+          Text("Loading voices…", style = MaterialTheme.typography.bodySmall)
+        }
+      } else {
+        voices.forEach { voice ->
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .clickable { onUpdateSettings { it.copy(podcastVoiceName = voice.name) } }
+              .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            RadioButton(
+              selected = settings.podcastVoiceName == voice.name,
+              onClick = { onUpdateSettings { it.copy(podcastVoiceName = voice.name) } }
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+              Text(voice.label, style = MaterialTheme.typography.bodyMedium)
+              Text(
+                voice.name,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+              )
+            }
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(12.dp))
+      HorizontalDivider()
+      Spacer(modifier = Modifier.height(12.dp))
+
+      Text(
+        text = "Speech rate: ${"%.2f".format(settings.podcastSpeechRate)}x",
+        style = MaterialTheme.typography.bodyMedium
+      )
+      Slider(
+        value = settings.podcastSpeechRate,
+        onValueChange = { value -> onUpdateSettings { it.copy(podcastSpeechRate = value) } },
+        valueRange = 0.5f..2.0f,
+        steps = 5
+      )
+
+      Spacer(modifier = Modifier.height(4.dp))
+      Text(
+        text = "Pitch: ${"%.2f".format(settings.podcastSpeechPitch)}x",
+        style = MaterialTheme.typography.bodyMedium
+      )
+      Slider(
+        value = settings.podcastSpeechPitch,
+        onValueChange = { value -> onUpdateSettings { it.copy(podcastSpeechPitch = value) } },
+        valueRange = 0.5f..2.0f,
+        steps = 5
+      )
+
+      Spacer(modifier = Modifier.height(8.dp))
+      Text(
+        text = "If no voices are listed, install speech data in your device's text-to-speech settings. " +
+          "Podcasts are generated and played on device; changing the voice only affects new playback.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+      )
     }
   }
 }

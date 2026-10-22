@@ -67,6 +67,56 @@ data class DigestSourceWebsite(
 )
 
 @Serializable
+enum class PodcastStatus {
+  /** Script is being written by the AI backend. */
+  WRITING_SCRIPT,
+
+  /** Script is ready; speech is being synthesized and cached on device. */
+  SYNTHESIZING,
+
+  /** Audio is cached and ready to play. */
+  READY,
+
+  /** Playback finished. */
+  COMPLETED,
+
+  /** Script or speech generation failed; see [PodcastEpisode.error]. */
+  FAILED
+}
+
+/**
+ * A listenable "podcast" episode generated from the user's saved links.
+ *
+ * [audioFilePaths] point at cached speech files in the app's private storage, split into
+ * per-chunk parts that are played back to back. The list is empty while the episode is
+ * still being synthesized (or if synthesis failed), in which case playback falls back to
+ * live on-device text-to-speech.
+ */
+@Serializable
+data class PodcastEpisode(
+  val id: String,
+  val title: String,
+  val createdAt: Long,
+  val updatedAt: Long,
+  val scriptMarkdown: String,
+  val providerName: String,
+  val voiceName: String? = null,
+  val status: PodcastStatus = PodcastStatus.WRITING_SCRIPT,
+  val audioFilePaths: List<String> = emptyList(),
+  val durationMs: Long = 0L,
+  val error: String? = null,
+  val sourceWebsites: List<DigestSourceWebsite> = emptyList()
+)
+
+/** Live playback state for the podcast player, surfaced to the UI. */
+data class PodcastPlaybackState(
+  val episodeId: String? = null,
+  val isPlaying: Boolean = false,
+  val partIndex: Int = 0,
+  val totalParts: Int = 0
+)
+
+@Serializable
 data class AppSettings(
   val selectedBackend: AiBackend = AiBackend.FIREBASE_AI,
   val autoSummarizeOnSave: Boolean = false,
@@ -76,5 +126,10 @@ data class AppSettings(
   val openAiBaseUrl: String = "https://api.openai.com/v1",
   val openAiApiKey: String = "",
   val openAiModel: String = "gpt-4o-mini",
-  val preferredBrowserPackage: String = "" // empty = auto-detect external browser / Custom Tabs
+  val preferredBrowserPackage: String = "", // empty = auto-detect external browser / Custom Tabs
+  // Podcast / text-to-speech playback
+  val podcastTtsEngine: String = "", // empty = system default TextToSpeech engine
+  val podcastVoiceName: String = "", // empty = engine default voice
+  val podcastSpeechRate: Float = 1.0f,
+  val podcastSpeechPitch: Float = 1.0f
 )

@@ -12,6 +12,8 @@ import kotlinx.coroutines.launch
 import se.oscarb.summer.data.AppSettings
 import se.oscarb.summer.data.DigestEntry
 import se.oscarb.summer.data.LinkFilter
+import se.oscarb.summer.data.PodcastEpisode
+import se.oscarb.summer.data.PodcastPlaybackState
 import se.oscarb.summer.data.SavedWebsite
 import se.oscarb.summer.data.SummerRepository
 
@@ -25,6 +27,10 @@ data class SummerUiState(
   val activeDigestSheet: DigestEntry? = null,
   val isGeneratingDigest: Boolean = false,
   val digestError: String? = null,
+  val podcasts: List<PodcastEpisode> = emptyList(),
+  val activePodcastSheet: PodcastEpisode? = null,
+  val podcastPlayback: PodcastPlaybackState = PodcastPlaybackState(),
+  val podcastError: String? = null,
   val settings: AppSettings = AppSettings()
 )
 
@@ -36,16 +42,53 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
   private val _expandedIds = MutableStateFlow<Set<String>>(emptySet())
   private val _activeDigestSheet = MutableStateFlow<DigestEntry?>(null)
   private val _digestError = MutableStateFlow<String?>(null)
+  private val _activePodcastSheet = MutableStateFlow<PodcastEpisode?>(null)
+  private val _podcastError = MutableStateFlow<String?>(null)
 
-  val uiState: StateFlow<SummerUiState> = combine(
+  // kotlinx.coroutines only provides typed combine overloads up to five flows, so the sheet
+  // inputs are folded in two steps.
+  private val sheetCoreFlow = combine(
+    _activeFilter,
+    _expandedIds,
+    _activeDigestSheet,
+    _digestError
+  ) { filter, expanded, digestSheet, digestErr ->
+    SheetCore(filter, expanded, digestSheet, digestErr)
+  }
+
+  private val sheetsFlow = combine(
+    sheetCoreFlow,
+    _activePodcastSheet,
+    _podcastError
+  ) { core, podcastSheet, podcastErr ->
+    Sheets(
+      filter = core.filter,
+      expanded = core.expanded,
+      digestSheet = core.digestSheet,
+      digestError = core.digestError,
+      podcastSheet = podcastSheet,
+      podcastError = podcastErr
+    )
+  }
+
+  private val coreFlow = combine(
     repository.websites,
     repository.digests,
     repository.settings,
     repository.isGeneratingDigest,
-    combine(_activeFilter, _expandedIds, _activeDigestSheet, _digestError) { filter, expanded, sheet, err ->
-      Quad(filter, expanded, sheet, err)
-    }
-  ) { websites, digests, settings, isGeneratingDigest, (filter, expanded, sheet, err) ->
+    sheetsFlow
+  ) { websites, digests, settings, isGeneratingDigest, sheets ->
+    CoreState(websites, digests, settings, isGeneratingDigest, sheets)
+  }
+
+  val uiState: StateFlow<SummerUiState> = combine(
+    coreFlow,
+    repository.podcasts,
+    repository.podcastPlayback
+  ) { core, podcasts, playback ->
+    val websites = core.websites
+    val sheets = core.sheets
+    val filter = sheets.filter
     val filtered = when (filter) {
       LinkFilter.UNREAD -> websites.filter { !it.isArchived }
       LinkFilter.ALL -> websites
@@ -56,12 +99,17 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
       filteredWebsites = filtered,
       unreadCount = websites.count { !it.isArchived },
       activeFilter = filter,
-      expandedWebsiteIds = expanded,
-      digests = digests,
-      activeDigestSheet = sheet,
-      isGeneratingDigest = isGeneratingDigest,
-      digestError = err,
-      settings = settings
+      expandedWebsiteIds = sheets.expanded,
+      digests = core.digests,
+      activeDigestSheet = sheets.digestSheet,
+      isGeneratingDigest = core.isGeneratingDigest,
+      digestError = sheets.digestError,
+      podcasts = podcasts,
+      // Keep the open sheet in sync with the persisted episode as it generates/updates.
+      activePodcastSheet = sheets.podcastSheet?.let { open -> podcasts.firstOrNull { it.id == open.id } },
+      podcastPlayback = playback,
+      podcastError = sheets.podcastError,
+      settings = core.settings
     )
   }.stateIn(
     scope = viewModelScope,
@@ -131,6 +179,69 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     _digestError.value = null
   }
 
+  fun generatePodcastFromUnread() {
+    val unread = repository.websites.value.filter { !it.isRead && !it.isArchived }
+    if (unread.isEmpty()) {
+      _podcastError.value = "No unread websites to turn into a podcast!"
+      return
+    }
+    val episodeId = repository.generatePodcast(unread)
+    if (episodeId == null) {
+      _podcastError.value = "Could not start podcast generation."
+      return
+    }
+    // Surface the new episode right away so the user can watch it generate.
+    _activePodcastSheet.value = repository.podcasts.value.firstOrNull { it.id == episodeId }
+  }
+
+  fun generatePodcastFromWebsites(websites: List<SavedWebsite>) {
+    if (websites.isEmpty()) {
+      _podcastError.value = "No websites selected for the podcast."
+      return
+    }
+    val episodeId = repository.generatePodcast(websites)
+    if (episodeId == null) {
+      _podcastError.value = "Could not start podcast generation."
+      return
+    }
+    _activePodcastSheet.value = repository.podcasts.value.firstOrNull { it.id == episodeId }
+  }
+
+  fun openPodcastEpisode(episode: PodcastEpisode) {
+    _activePodcastSheet.value = episode
+  }
+
+  fun dismissPodcastSheet() {
+    _activePodcastSheet.value = null
+  }
+
+  fun clearPodcastError() {
+    _podcastError.value = null
+  }
+
+  fun playPodcast(episodeId: String) {
+    repository.playPodcast(episodeId)
+  }
+
+  fun pausePodcast() {
+    repository.pausePodcast()
+  }
+
+  fun resumePodcast() {
+    repository.resumePodcast()
+  }
+
+  fun stopPodcast() {
+    repository.stopPodcast()
+  }
+
+  fun deletePodcast(episodeId: String) {
+    if (_activePodcastSheet.value?.id == episodeId) {
+      _activePodcastSheet.value = null
+    }
+    repository.deletePodcast(episodeId)
+  }
+
   fun markDigestSourcesArchived(digest: DigestEntry) {
     val ids = digest.sourceWebsites.map { it.id }.toSet()
     repository.markWebsitesArchived(ids)
@@ -148,5 +259,27 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     repository.updateSettings(transform)
   }
 
-  private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+  private data class CoreState(
+    val websites: List<SavedWebsite>,
+    val digests: List<DigestEntry>,
+    val settings: AppSettings,
+    val isGeneratingDigest: Boolean,
+    val sheets: Sheets
+  )
+
+  private data class SheetCore(
+    val filter: LinkFilter,
+    val expanded: Set<String>,
+    val digestSheet: DigestEntry?,
+    val digestError: String?
+  )
+
+  private data class Sheets(
+    val filter: LinkFilter,
+    val expanded: Set<String>,
+    val digestSheet: DigestEntry?,
+    val digestError: String?,
+    val podcastSheet: PodcastEpisode?,
+    val podcastError: String?
+  )
 }

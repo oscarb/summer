@@ -24,6 +24,11 @@ Whenever you come across interesting articles in other apps (such as **Google Fe
   - Tap a card to expand its AI summary inline and access quick actions (**Open in Browser**, **Archive**, **Share**, **Delete**).
   - Swipe right to archive/unarchive, or swipe left to delete.
   - Tap **Catch Me Up** to generate a unified briefing across all unread links in a modal Bottom Sheet, with a **Digests** tab to revisit past briefings.
+- **Listenable "Catch Me Up" Podcasts (`PodcastSynthesizer` / `PodcastPlayer`)**
+  - Tap **Listen as Podcast** in any Catch Me Up digest, or **New Podcast** on the **Podcasts** tab, to turn your saved links into a spoken-word episode.
+  - The AI writes a plain narration script, which is then read aloud on device with the system **Text-to-Speech** engine — no extra API key required.
+  - Speech is cached to private app storage (per-chunk audio parts) so episodes replay instantly; if an engine cannot save audio, playback falls back to live text-to-speech.
+  - A mini player keeps playing across tabs, and the **Podcasts** tab shows progress, the full script, and the source links. Voice, engine, rate, and pitch are configurable in **Settings**.
 - **Loop-Free External Browser Launching (`ExternalBrowserLauncher`)**
   - Because Summer registers as a browser itself, tapping **Open in Browser** queries `PackageManager` for other installed browsers (excluding `se.oscarb.summer`) and opens the article via **Chrome Custom Tabs**.
 
