@@ -76,5 +76,7 @@ data class AppSettings(
   val openAiBaseUrl: String = "https://api.openai.com/v1",
   val openAiApiKey: String = "",
   val openAiModel: String = "gpt-4o-mini",
-  val preferredBrowserPackage: String = "" // empty = auto-detect external browser / Custom Tabs
+  val preferredBrowserPackage: String = "", // empty = auto-detect external browser
+  val useCustomTabs: Boolean = false, // false = open full browser app; true = open Chrome Custom Tab overlay
+  val onlyInterceptGoogleFeed: Boolean = false // when true, non-Google-Feed links are forwarded to external browser
 )

@@ -237,7 +237,8 @@ fun MainScreen(
             ExternalBrowserLauncher.openInExternalBrowser(
               context = context,
               url = url,
-              preferredBrowserPackage = state.settings.preferredBrowserPackage
+              preferredBrowserPackage = state.settings.preferredBrowserPackage,
+              useCustomTabs = state.settings.useCustomTabs
             )
           },
           onAddSampleOrUrl = { showAddLinkDialog = true }
@@ -272,7 +273,8 @@ fun MainScreen(
           ExternalBrowserLauncher.openInExternalBrowser(
             context = context,
             url = url,
-            preferredBrowserPackage = state.settings.preferredBrowserPackage
+            preferredBrowserPackage = state.settings.preferredBrowserPackage,
+            useCustomTabs = state.settings.useCustomTabs
           )
         },
         onMarkAllArchived = {
@@ -1216,20 +1218,87 @@ private fun SettingsTab(
       }
     }
 
+    // Google Feed Interception Card
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+      Column(modifier = Modifier.padding(16.dp)) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = "Only Intercept Google Feed URLs",
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+              text = "When enabled, Summer only saves links coming from the Google Feed (via search.app/share.google shorteners, Discover tracking params, or Google App referrers). All other links will automatically open in your external browser as if Summer was not installed.",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+          }
+          Switch(
+            checked = settings.onlyInterceptGoogleFeed,
+            onCheckedChange = { checked ->
+              onUpdateSettings { it.copy(onlyInterceptGoogleFeed = checked) }
+            }
+          )
+        }
+      }
+    }
+
     // External Browser Selection Card (avoids looping back into Summer)
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
       Column(modifier = Modifier.padding(16.dp)) {
         Text(
-          text = "External Browser for \"Open in Browser\"",
+          text = "External Browser Launching",
           style = MaterialTheme.typography.titleMedium,
           fontWeight = FontWeight.Bold
         )
         Text(
-          text = "Since Summer registers as a browser itself, opening an article from inside Summer routes directly to an external browser (via Chrome Custom Tabs) so it never loops back.",
+          text = "When opening external articles or passing through non-feed links, Summer targets your installed browser app directly.",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = "Use Custom Tabs overlay",
+              style = MaterialTheme.typography.bodyMedium,
+              fontWeight = FontWeight.SemiBold
+            )
+            Text(
+              text = "When off (default), opens full standalone browser app. When on, opens in an in-app browser tab.",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+          }
+          Switch(
+            checked = settings.useCustomTabs,
+            onCheckedChange = { checked ->
+              onUpdateSettings { it.copy(useCustomTabs = checked) }
+            }
+          )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+          text = "Target Browser App",
+          style = MaterialTheme.typography.labelLarge,
+          fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(4.dp))
 
         Row(
           modifier = Modifier

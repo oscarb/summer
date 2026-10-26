@@ -51,7 +51,8 @@ object ExternalBrowserLauncher {
   fun openInExternalBrowser(
     context: Context,
     url: String,
-    preferredBrowserPackage: String = ""
+    preferredBrowserPackage: String = "",
+    useCustomTabs: Boolean = false
   ) {
     val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return
     val installedBrowsers = getInstalledExternalBrowsers(context)
@@ -60,8 +61,9 @@ object ExternalBrowserLauncher {
       .takeIf { pref -> pref.isNotBlank() && installedBrowsers.any { it.packageName == pref } }
       ?: installedBrowsers.firstOrNull()?.packageName
 
-    try {
-      if (targetPkg != null) {
+    // 1. If Custom Tabs is explicitly requested and supported by target browser
+    if (useCustomTabs && targetPkg != null) {
+      try {
         val customTabsIntent = CustomTabsIntent.Builder()
           .setShowTitle(true)
           .build()
@@ -69,15 +71,17 @@ object ExternalBrowserLauncher {
         customTabsIntent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         customTabsIntent.launchUrl(context, uri)
         return
+      } catch (_: Exception) {
+        // Fall through to standard Intent.ACTION_VIEW
       }
-    } catch (_: Exception) {
-      // Fall through to standard Intent.ACTION_VIEW with package or chooser
     }
 
+    // 2. Direct browser app launch (opens full external browser application)
     try {
       if (targetPkg != null) {
         val directIntent = Intent(Intent.ACTION_VIEW, uri).apply {
           setPackage(targetPkg)
+          addCategory(Intent.CATEGORY_BROWSABLE)
           addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(directIntent)

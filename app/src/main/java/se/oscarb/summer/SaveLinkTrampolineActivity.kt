@@ -6,6 +6,8 @@ import android.os.Bundle
 import android.widget.Toast
 import se.oscarb.summer.data.SaveUrlOutcome
 import se.oscarb.summer.data.SummerRepository
+import se.oscarb.summer.util.ExternalBrowserLauncher
+import se.oscarb.summer.util.GoogleFeedDetector
 
 /**
  * Zero-UI trampoline activity that registers as a Browser (`ACTION_VIEW` for http/https)
@@ -14,6 +16,10 @@ import se.oscarb.summer.data.SummerRepository
  * When a user taps a link in Google Feed (or shares a link to Summer), this activity
  * saves the URL to SummerRepository, shows a quick Toast confirmation, and immediately
  * finishes so the user stays right where they were in the source app.
+ *
+ * If [se.oscarb.summer.data.AppSettings.onlyInterceptGoogleFeed] is enabled, links that do
+ * NOT originate from Google Feed will be forwarded directly to the chosen default external browser,
+ * behaving as if Summer were not installed.
  */
 class SaveLinkTrampolineActivity : Activity() {
 
@@ -21,8 +27,33 @@ class SaveLinkTrampolineActivity : Activity() {
     super.onCreate(savedInstanceState)
 
     val incomingUrl = extractUrlFromIntent(intent)
+    val repo = SummerRepository.getInstance(applicationContext)
+    val settings = repo.settings.value
+
     if (incomingUrl != null) {
-      val repo = SummerRepository.getInstance(applicationContext)
+      // If "Only Intercept Google Feed URLs" is enabled, verify origin
+      if (settings.onlyInterceptGoogleFeed) {
+        val isFeed = GoogleFeedDetector.isFromGoogleFeed(
+          intent = intent,
+          url = incomingUrl,
+          referrer = referrer
+        )
+
+        if (!isFeed) {
+          // Pass-through to chosen external browser / default browser
+          ExternalBrowserLauncher.openInExternalBrowser(
+            context = applicationContext,
+            url = incomingUrl,
+            preferredBrowserPackage = settings.preferredBrowserPackage,
+            useCustomTabs = settings.useCustomTabs
+          )
+          finish()
+          @Suppress("DEPRECATION")
+          overridePendingTransition(0, 0)
+          return
+        }
+      }
+
       when (val outcome = repo.saveOrBumpUrl(incomingUrl)) {
         is SaveUrlOutcome.SavedNew -> {
           Toast.makeText(
