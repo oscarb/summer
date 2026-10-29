@@ -5,6 +5,7 @@ import com.google.ai.edge.aicore.GenerativeModel
 import com.google.ai.edge.aicore.generationConfig
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -98,17 +99,166 @@ class AiSummaryService(private val appContext: Context) {
     generateWithSelectedBackend(prompt, settings)
   }
 
+  /**
+   * Generates a natural, spoken-word two-host mini-podcast script for a single saved article,
+   * designed specifically for listening rather than reading bullet points.
+   */
+  suspend fun generateSingleArticlePodcastScript(
+    website: SavedWebsite,
+    settings: AppSettings
+  ): Result<String> = withContext(Dispatchers.IO) {
+    val hostA = settings.hostAName.trim().ifBlank { "Alex" }
+    val hostB = settings.hostBName.trim().ifBlank { "Sam" }
+    val contentSnippet = website.extractedContent.ifBlank {
+      website.summary ?: "(Article body could not be fully extracted; discuss based on title and domain.)"
+    }.take(10_000)
+
+    val prompt = """
+      You are writing a short, engaging 2-host audio summary script for the "Summer" podcast app.
+      Instead of bullet points or written-style text, turn this article into a natural, lively 60-to-90 second conversation between two hosts: $hostA and $hostB.
+      
+      Guidelines for natural spoken audio:
+      - $hostA is the curious lead host who introduces the story and asks sharp questions.
+      - $hostB is the insightful analyst who unpacks the core takeaways, surprising details, and why it matters.
+      - Write ONLY for the ear: use natural phrasing, contractions, and conversational flow. Never use bullet points, markdown formatting, URLs, or robotic transitions.
+      - Format EVERY line strictly as "$hostA: <spoken words>" or "$hostB: <spoken words>" on its own line (6 to 10 turns total).
+      - Do NOT include stage directions like [laughs] or (intro music).
+      
+      Article Title: ${website.title}
+      Source Domain: ${website.domain}
+      Existing Written Summary: ${website.summary ?: "None"}
+      Article Content:
+      $contentSnippet
+    """.trimIndent()
+
+    generateWithSelectedBackend(prompt, settings)
+  }
+
+  /**
+   * Generates a cohesive 2-host "Catch Me Up" podcast episode script that weaves a narrative
+   * "red line" (connecting thread) across all the articles in a digest.
+   */
+  suspend fun generateCatchMeUpPodcastScript(
+    websites: List<SavedWebsite>,
+    existingDigestMarkdown: String? = null,
+    settings: AppSettings
+  ): Result<String> = withContext(Dispatchers.IO) {
+    if (websites.isEmpty() && existingDigestMarkdown.isNullOrBlank()) {
+      return@withContext Result.failure(IllegalArgumentException("No articles available for podcast script."))
+    }
+
+    val hostA = settings.hostAName.trim().ifBlank { "Alex" }
+    val hostB = settings.hostBName.trim().ifBlank { "Sam" }
+
+    val itemsBlock = websites.mapIndexed { index, site ->
+      val body = site.summary?.let { "Key Summary:\n$it" }
+        ?: site.extractedContent.take(3_000).ifBlank { "(Title/URL only)" }
+      """
+      ARTICLE ${index + 1}: "${site.title}" (from ${site.domain})
+      $body
+      """.trimIndent()
+    }.joinToString("\n\n")
+
+    val digestContext = if (!existingDigestMarkdown.isNullOrBlank()) {
+      "\nBriefing Overview:\n$existingDigestMarkdown\n"
+    } else {
+      ""
+    }
+
+    val prompt = """
+      You are the showrunner and scriptwriter for the "Summer Catch Me Up" daily podcast.
+      Write an engaging, natural-sounding two-host podcast episode between **$hostA** and **$hostB** covering the user's saved articles below.
+      
+      CRITICAL GOAL — THE "RED LINE" ACROSS ARTICLES:
+      - Do NOT treat the articles as disconnected clips or a checklist.
+      - Find the overarching narrative thread ("red line"), shared themes, tensions, or surprising contrasts across these stories.
+      - Open with a warm, hooky 2-turn intro that highlights the big-picture thread connecting today's stories.
+      - Every time you move from one article to the next, weave a natural conversational bridge (e.g., how one story's trend echoes, contrasts with, or sets up the next story) so the entire episode flows like a single unified conversation.
+      - $hostA is the curious, engaging host who drives the narrative arc and connects the dots.
+      - $hostB is the sharp, insightful co-host who brings out the most interesting facts, nuances, and "why it matters" takeaways.
+      - Write strictly for spoken audio: conversational rhythm, contractions, and natural reactions ("Right, and here's the wild part...", "Wait, seriously?").
+      - Format EVERY turn strictly as:
+        $hostA: <spoken words>
+        $hostB: <spoken words>
+      - Do NOT use markdown bold, bullet points, bracketed citations like [1], or stage directions like [music] or [laughs].
+      - Aim for 12 to 22 conversational turns total so it covers every article meaningfully while keeping a brisk, engaging pace.
+      $digestContext
+      Articles to weave together:
+      $itemsBlock
+    """.trimIndent()
+
+    generateWithSelectedBackend(prompt, settings)
+  }
+
+  /**
+   * Probes the currently selected [AiBackend] with a tiny prompt (and lists enabled Gemini 3.x
+   * models when using Direct Gemini API) so the user can verify access in Settings.
+   */
+  suspend fun verifyTextBackendAccess(settings: AppSettings): Result<String> = withContext(Dispatchers.IO) {
+    val activeModel = when (settings.selectedBackend) {
+      AiBackend.FIREBASE_AI -> settings.firebaseModel.trim().ifBlank { "gemini-3.8-flash" }
+      AiBackend.DIRECT_GEMINI -> settings.directGeminiModel.trim().ifBlank { "gemini-3.8-flash" }
+      AiBackend.GEMINI_NANO_ON_DEVICE -> "Gemini Nano (AICore)"
+      AiBackend.OPENAI_COMPATIBLE -> settings.openAiModel.trim().ifBlank { "gpt-4o-mini" }
+    }
+
+    val startMs = System.currentTimeMillis()
+    val probeResult = generateWithSelectedBackend(
+      prompt = "Reply with the single word OK.",
+      settings = settings,
+      allowCapacityFallback = false
+    )
+    val elapsedMs = System.currentTimeMillis() - startMs
+
+    probeResult.map { reply ->
+      val extraModelsNote = if (settings.selectedBackend == AiBackend.DIRECT_GEMINI) {
+        val available3x = listDirectGemini3Models(settings.directGeminiApiKey.trim())
+        if (available3x.isNotEmpty()) {
+          "\nGemini 3.x models on your key: ${available3x.joinToString(", ")}"
+        } else {
+          ""
+        }
+      } else {
+        ""
+      }
+      "Verified ${settings.selectedBackend.displayName} using $activeModel (${elapsedMs}ms) — response: \"${reply.take(40)}\"$extraModelsNote"
+    }
+  }
+
+  private fun listDirectGemini3Models(apiKey: String): List<String> {
+    if (apiKey.isBlank()) return emptyList()
+    return runCatching {
+      val req = Request.Builder()
+        .url("https://generativelanguage.googleapis.com/v1beta/models?key=$apiKey")
+        .get()
+        .build()
+      httpClient.newCall(req).execute().use { resp ->
+        if (!resp.isSuccessful) return emptyList()
+        val root = json.parseToJsonElement(resp.body?.string().orEmpty()).jsonObject
+        root["models"]?.jsonArray.orEmpty()
+          .mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.content?.removePrefix("models/") }
+          .filter { it.startsWith("gemini-3") && !it.contains("tts") && !it.contains("image") }
+      }
+    }.getOrDefault(emptyList())
+  }
+
   private suspend fun generateWithSelectedBackend(
     prompt: String,
-    settings: AppSettings
+    settings: AppSettings,
+    allowCapacityFallback: Boolean = true
   ): Result<String> {
     return try {
       val text = when (settings.selectedBackend) {
-        AiBackend.FIREBASE_AI -> callFirebaseAiLogic(prompt, settings.firebaseModel)
+        AiBackend.FIREBASE_AI -> callFirebaseAiLogic(
+          prompt = prompt,
+          modelName = settings.firebaseModel,
+          allowCapacityFallback = allowCapacityFallback
+        )
         AiBackend.DIRECT_GEMINI -> callDirectGeminiApi(
           prompt = prompt,
           apiKey = settings.directGeminiApiKey.trim(),
-          model = settings.directGeminiModel.trim().ifBlank { "gemini-2.5-flash" }
+          model = settings.directGeminiModel.trim().ifBlank { "gemini-3.8-flash" },
+          allowCapacityFallback = allowCapacityFallback
         )
         AiBackend.GEMINI_NANO_ON_DEVICE -> callOnDeviceGeminiNano(prompt)
         AiBackend.OPENAI_COMPATIBLE -> callOpenAiCompatibleApi(
@@ -123,22 +273,63 @@ class AiSummaryService(private val appContext: Context) {
       } else {
         Result.success(text.trim())
       }
+    } catch (ce: CancellationException) {
+      throw ce
     } catch (e: Exception) {
       Result.failure(e)
     }
   }
 
-  private suspend fun callFirebaseAiLogic(prompt: String, modelName: String): String {
-    val cleanModel = modelName.trim().ifBlank { "gemini-2.5-flash" }
-    val model = Firebase.ai.generativeModel(modelName = cleanModel)
-    val response = model.generateContent(prompt)
-    return response.text ?: throw IllegalStateException("Empty response from Firebase AI Logic ($cleanModel)")
+  private suspend fun callFirebaseAiLogic(
+    prompt: String,
+    modelName: String,
+    allowCapacityFallback: Boolean = true
+  ): String {
+    if (com.google.firebase.FirebaseApp.getApps(appContext).isEmpty()) {
+      com.google.firebase.FirebaseApp.initializeApp(appContext)
+    }
+    val cleanModel = modelName.trim().ifBlank { "gemini-3.8-flash" }
+    return try {
+      val model = Firebase.ai.generativeModel(modelName = cleanModel)
+      val response = model.generateContent(prompt)
+      response.text ?: throw IllegalStateException("Empty response from Firebase AI Logic ($cleanModel)")
+    } catch (ce: CancellationException) {
+      throw ce
+    } catch (e: Exception) {
+      if (allowCapacityFallback && cleanModel != "gemini-3.5-flash") {
+        val fallbackModel = Firebase.ai.generativeModel(modelName = "gemini-3.5-flash")
+        val response = fallbackModel.generateContent(prompt)
+        response.text ?: throw e
+      } else {
+        throw e
+      }
+    }
   }
 
-  private fun callDirectGeminiApi(prompt: String, apiKey: String, model: String): String {
+  private fun callDirectGeminiApi(
+    prompt: String,
+    apiKey: String,
+    model: String,
+    allowCapacityFallback: Boolean = true
+  ): String {
     if (apiKey.isBlank()) {
       throw IllegalStateException("Direct Gemini API key is missing. Add it in Settings or switch to Firebase AI Logic.")
     }
+    return try {
+      executeDirectGeminiHttpCall(prompt = prompt, apiKey = apiKey, model = model)
+    } catch (e: Exception) {
+      val isHighDemandOrTimeout = e is java.net.SocketTimeoutException ||
+        e.message?.contains("HTTP 503") == true ||
+        e.message?.contains("HTTP 429") == true
+      if (allowCapacityFallback && isHighDemandOrTimeout && model != "gemini-3.5-flash") {
+        executeDirectGeminiHttpCall(prompt = prompt, apiKey = apiKey, model = "gemini-3.5-flash")
+      } else {
+        throw e
+      }
+    }
+  }
+
+  private fun executeDirectGeminiHttpCall(prompt: String, apiKey: String, model: String): String {
     val endpoint =
       "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
 
@@ -189,6 +380,8 @@ class AiSummaryService(private val appContext: Context) {
       // On-device Gemini Nano has a smaller context window; trim prompt safely
       val response = localModel.generateContent(prompt.take(6_000))
       response.text ?: throw IllegalStateException("Gemini Nano returned empty output.")
+    } catch (ce: CancellationException) {
+      throw ce
     } catch (e: Exception) {
       throw IllegalStateException(
         "On-Device Gemini Nano (AICore) error: ${e.message ?: "Requires supported Pixel/flagship device with AICore enabled"}. " +
