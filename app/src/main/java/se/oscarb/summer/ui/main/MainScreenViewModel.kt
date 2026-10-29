@@ -14,6 +14,8 @@ import se.oscarb.summer.data.DigestEntry
 import se.oscarb.summer.data.LinkFilter
 import se.oscarb.summer.data.SavedWebsite
 import se.oscarb.summer.data.SummerRepository
+import se.oscarb.summer.podcast.PodcastPlaybackController
+import se.oscarb.summer.podcast.PodcastPlaybackState
 
 data class SummerUiState(
   val websites: List<SavedWebsite> = emptyList(),
@@ -25,12 +27,14 @@ data class SummerUiState(
   val activeDigestSheet: DigestEntry? = null,
   val isGeneratingDigest: Boolean = false,
   val digestError: String? = null,
-  val settings: AppSettings = AppSettings()
+  val settings: AppSettings = AppSettings(),
+  val podcastPlayback: PodcastPlaybackState = PodcastPlaybackState()
 )
 
 class MainScreenViewModel(application: Application) : AndroidViewModel(application) {
 
   private val repository = SummerRepository.getInstance(application)
+  private val playbackController = PodcastPlaybackController.getInstance(application)
 
   private val _activeFilter = MutableStateFlow(LinkFilter.UNREAD)
   private val _expandedIds = MutableStateFlow<Set<String>>(emptySet())
@@ -42,14 +46,23 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     repository.digests,
     repository.settings,
     repository.isGeneratingDigest,
-    combine(_activeFilter, _expandedIds, _activeDigestSheet, _digestError) { filter, expanded, sheet, err ->
-      Quad(filter, expanded, sheet, err)
+    combine(
+      _activeFilter,
+      _expandedIds,
+      _activeDigestSheet,
+      _digestError,
+      playbackController.state
+    ) { filter, expanded, sheet, err, playback ->
+      Quint(filter, expanded, sheet, err, playback)
     }
-  ) { websites, digests, settings, isGeneratingDigest, (filter, expanded, sheet, err) ->
+  ) { websites, digests, settings, isGeneratingDigest, (filter, expanded, sheet, err, playback) ->
     val filtered = when (filter) {
       LinkFilter.UNREAD -> websites.filter { !it.isArchived }
       LinkFilter.ALL -> websites
       LinkFilter.ARCHIVED -> websites.filter { it.isArchived }
+    }
+    val liveSheet = sheet?.let { active ->
+      digests.firstOrNull { it.id == active.id } ?: active
     }
     SummerUiState(
       websites = websites,
@@ -58,10 +71,11 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
       activeFilter = filter,
       expandedWebsiteIds = expanded,
       digests = digests,
-      activeDigestSheet = sheet,
+      activeDigestSheet = liveSheet,
       isGeneratingDigest = isGeneratingDigest,
       digestError = err,
-      settings = settings
+      settings = settings,
+      podcastPlayback = playback
     )
   }.stateIn(
     scope = viewModelScope,
@@ -148,5 +162,75 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     repository.updateSettings(transform)
   }
 
-  private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+  fun playOrGenerateDigestPodcast(digest: DigestEntry, forceRegenerate: Boolean = false) {
+    val pb = playbackController.state.value
+    if (!forceRegenerate && pb.isActive && pb.activeDigestId == digest.id) {
+      playbackController.togglePlayPause()
+      return
+    }
+    repository.generatePodcastForDigest(
+      digestId = digest.id,
+      forceRegenerate = forceRegenerate,
+      autoPlayWhenReady = true
+    )
+  }
+
+  fun generateDigestPodcastInBackground(digest: DigestEntry) {
+    repository.generatePodcastForDigest(
+      digestId = digest.id,
+      forceRegenerate = true,
+      autoPlayWhenReady = false
+    )
+  }
+
+  fun playOrGenerateWebsitePodcast(website: SavedWebsite, forceRegenerate: Boolean = false) {
+    val pb = playbackController.state.value
+    if (!forceRegenerate && pb.isActive && pb.activeWebsiteId == website.id) {
+      playbackController.togglePlayPause()
+      return
+    }
+    _expandedIds.value = _expandedIds.value + website.id
+    repository.generateOrPlayWebsitePodcast(
+      websiteId = website.id,
+      forceRegenerate = forceRegenerate,
+      autoPlayWhenReady = true
+    )
+  }
+
+  fun togglePodcastPlayPause() {
+    playbackController.togglePlayPause()
+  }
+
+  fun seekPodcastTo(positionMs: Long) {
+    playbackController.seekTo(positionMs)
+  }
+
+  fun skipPodcastBy(deltaMs: Long) {
+    playbackController.skipBy(deltaMs)
+  }
+
+  fun stopPodcastPlayback() {
+    playbackController.stop()
+  }
+
+  fun openActivePodcastDetails() {
+    val pb = playbackController.state.value
+    val digestId = pb.activeDigestId
+    if (digestId != null) {
+      val digest = repository.digests.value.firstOrNull { it.id == digestId }
+      if (digest != null) {
+        _activeDigestSheet.value = digest
+      }
+    } else if (pb.activeWebsiteId != null) {
+      _expandedIds.value = _expandedIds.value + pb.activeWebsiteId
+    }
+  }
+
+  private data class Quint<A, B, C, D, E>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D,
+    val fifth: E
+  )
 }
