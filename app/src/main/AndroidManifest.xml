@@ -6,6 +6,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Allow querying external browsers so "Open in Browser" can exclude Summer itself -->
     <queries>
@@ -21,6 +25,10 @@
         </intent>
         <intent>
             <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+        <!-- Allow listing installed text-to-speech engines for on-device podcast synthesis -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
     </queries>
 
@@ -83,6 +91,12 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <!-- Foreground Service for Background Podcast Generation & Screen-Off Playback -->
+        <service
+            android:name=".podcast.PodcastForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
     </application>
 
