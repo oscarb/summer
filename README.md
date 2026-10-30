@@ -2,7 +2,7 @@
 
 **Summer** (`se.oscarb.summer`) is a lightweight Android "read-later & AI catch-up" app that registers itself as a system **Browser** and **Share target** — without a traditional browsing UI.
 
-Whenever you come across interesting articles in other apps (such as **Google Feed**, social feeds, or newsletters) and open or share them with **Summer**, the URL is quietly saved in the background with a brief toast confirmation while you stay right where you were. Later, open **Summer** to view your saved websites (with scraped titles and favicons) and generate individual **AI summaries** or a combined **"Catch Me Up" AI briefing**.
+Whenever you come across interesting articles in other apps (such as **Google Feed**, social feeds, or newsletters) and open or share them with **Summer**, the URL is quietly saved in the background with a fast heads-up notification while you stay right where you were. Later, open **Summer** to view your saved websites (with scraped titles and favicons) and generate individual **AI summaries** or a combined **"Catch Me Up" AI briefing**.
 
 ---
 
@@ -10,7 +10,7 @@ Whenever you come across interesting articles in other apps (such as **Google Fe
 
 - **Zero-UI Browser & Share Target Trampoline (`SaveLinkTrampolineActivity`)**
   - Registers for `ACTION_VIEW` (`http` / `https` with `CATEGORY_BROWSABLE`) and `ACTION_SEND` (`text/plain`).
-  - Saves the link, bumps duplicates to the top, displays a quick `☀️ Saved to Summer` toast, and immediately returns to your previous app.
+  - Saves the link, bumps duplicates to the top, delivers an instant silent heads-up notification with quick actions (tap to open in browser, swipe to cancel save, Open Summer, Podcast), and immediately returns to your previous app.
 - **Automatic Metadata & Content Extraction (`WebPageScraper`)**
   - Uses **Jsoup** to scrape `<title>`, OpenGraph title (`og:title`), high-res favicons (`apple-touch-icon` / `<link rel="icon">` with Google S2 Favicon fallback), and clean readable article text.
 - **Multi-Backend AI Summarization (`AiSummaryService`)**

@@ -426,6 +426,7 @@ data class AppSettings(
   val preferredBrowserPackage: String = "", // empty = auto-detect external browser
   val useCustomTabs: Boolean = false, // false = open full browser app; true = open Chrome Custom Tab overlay
   val onlyInterceptGoogleFeed: Boolean = false, // when true, non-Google-Feed links are forwarded to external browser
+  val removeWhenOpenedFromNotification: Boolean = false, // when true, opening a link from the quick-save notification deletes it from Summer
   // Podcast & TTS Settings
   val podcastTtsProvider: PodcastTtsProvider = PodcastTtsProvider.GEMINI_MULTISPEAKER,
   val podcastLanguage: PodcastLanguage = PodcastLanguage.ENGLISH,

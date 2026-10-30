@@ -5,6 +5,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import org.jsoup.Jsoup
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.oscarb.summer.data.AppSettings
@@ -244,5 +245,19 @@ class SummerRoadmapFeaturesTest {
     assertEquals(listOf("Today", "Yesterday", "Oct 20", "Dec 15, 2025"), grouped.map { it.first })
     assertEquals(listOf("today2", "today1"), grouped[0].second.map { it.id })
     assertEquals("Today", formatDateHeaderLabel(today, today, Locale.US))
+  }
+
+  @Test
+  fun appSettings_defaultsAndSerializesRemoveWhenOpenedFromNotification() {
+    val defaultSettings = AppSettings()
+    assertFalse(defaultSettings.removeWhenOpenedFromNotification)
+
+    val customSettings = defaultSettings.copy(removeWhenOpenedFromNotification = true)
+    assertTrue(customSettings.removeWhenOpenedFromNotification)
+
+    val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+    val encoded = json.encodeToString(AppSettings.serializer(), customSettings)
+    val decoded = json.decodeFromString(AppSettings.serializer(), encoded)
+    assertTrue(decoded.removeWhenOpenedFromNotification)
   }
 }

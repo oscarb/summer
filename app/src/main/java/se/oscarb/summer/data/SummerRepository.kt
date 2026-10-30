@@ -1,6 +1,7 @@
 package se.oscarb.summer.data
 
 import android.content.Context
+import android.widget.Toast
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import se.oscarb.summer.podcast.PodcastForegroundService
@@ -304,9 +306,9 @@ class SummerRepository private constructor(private val appContext: Context) {
     }
 
     return if (isDuplicate) {
-      SaveUrlOutcome.BumpedExisting(domain, normalized)
+      SaveUrlOutcome.BumpedExisting(domain, normalized, targetId)
     } else {
-      SaveUrlOutcome.SavedNew(domain, normalized)
+      SaveUrlOutcome.SavedNew(domain, normalized, targetId)
     }
   }
 
@@ -355,6 +357,39 @@ class SummerRepository private constructor(private val appContext: Context) {
     playbackController.setQuietWindowCountdown(isWaiting = false)
     scope.launch {
       runQuietWindowSessionPodcast()
+    }
+  }
+
+  fun triggerCatchMeUpPodcastFromQuickAction() {
+    synchronized(quietWindowLock) {
+      quietWindowJob?.cancel()
+      quietWindowJob = null
+    }
+    playbackController.setQuietWindowCountdown(isWaiting = false)
+    scope.launch {
+      val kickoffJobKey = "quick-action-digest:${System.currentTimeMillis()}"
+      playbackController.setGenerationProgress(
+        jobKey = kickoffJobKey,
+        title = "Catch Me Up Podcast",
+        statusText = "Preparing unread articles..."
+      )
+      try {
+        generateCatchMeUpDigestForUnread()
+          .onSuccess {
+            delay(350L)
+          }
+          .onFailure { err ->
+            withContext(Dispatchers.Main) {
+              Toast.makeText(
+                appContext,
+                "Summer podcast failed: ${err.message ?: "Could not start podcast generation"}",
+                Toast.LENGTH_LONG
+              ).show()
+            }
+          }
+      } finally {
+        playbackController.clearGenerationProgress(kickoffJobKey)
+      }
     }
   }
 
@@ -788,6 +823,13 @@ class SummerRepository private constructor(private val appContext: Context) {
     persistWebsites()
   }
 
+  fun deleteWebsiteByUrl(url: String) {
+    val target = _websites.value.firstOrNull { it.url.equals(url, ignoreCase = true) }
+    if (target != null) {
+      deleteWebsite(target.id)
+    }
+  }
+
   fun deleteDigest(digestId: String) {
     val target = _digests.value.firstOrNull { it.id == digestId }
     target?.podcastAudioPath?.let { path ->
@@ -859,7 +901,7 @@ class SummerRepository private constructor(private val appContext: Context) {
 }
 
 sealed interface SaveUrlOutcome {
-  data class SavedNew(val domain: String, val url: String = "") : SaveUrlOutcome
-  data class BumpedExisting(val domain: String, val url: String = "") : SaveUrlOutcome
+  data class SavedNew(val domain: String, val url: String = "", val websiteId: String = "") : SaveUrlOutcome
+  data class BumpedExisting(val domain: String, val url: String = "", val websiteId: String = "") : SaveUrlOutcome
   data object InvalidUrl : SaveUrlOutcome
 }

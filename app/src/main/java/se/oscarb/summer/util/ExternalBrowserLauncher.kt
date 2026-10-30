@@ -48,6 +48,43 @@ object ExternalBrowserLauncher {
       .sortedWith(compareBy({ !it.packageName.contains("chrome", ignoreCase = true) }, { it.label }))
   }
 
+  fun createBrowserIntent(
+    context: Context,
+    url: String,
+    preferredBrowserPackage: String = "",
+    useCustomTabs: Boolean = false
+  ): Intent {
+    val uri = runCatching { Uri.parse(url) }.getOrNull() ?: Uri.parse("about:blank")
+    val installedBrowsers = getInstalledExternalBrowsers(context)
+
+    val targetPkg = preferredBrowserPackage
+      .takeIf { pref -> pref.isNotBlank() && installedBrowsers.any { it.packageName == pref } }
+      ?: installedBrowsers.firstOrNull()?.packageName
+
+    if (useCustomTabs && targetPkg != null) {
+      try {
+        val customTabsIntent = CustomTabsIntent.Builder()
+          .setShowTitle(true)
+          .build()
+        return customTabsIntent.intent.apply {
+          data = uri
+          setPackage(targetPkg)
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+      } catch (_: Exception) {
+        // Fallback to standard view intent
+      }
+    }
+
+    return Intent(Intent.ACTION_VIEW, uri).apply {
+      if (targetPkg != null) {
+        setPackage(targetPkg)
+      }
+      addCategory(Intent.CATEGORY_BROWSABLE)
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+  }
+
   fun openInExternalBrowser(
     context: Context,
     url: String,

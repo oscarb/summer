@@ -2761,6 +2761,35 @@ private fun SettingsTab(
         HorizontalDivider()
         Spacer(modifier = Modifier.height(12.dp))
 
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = "Don't save when opened from notification",
+              style = MaterialTheme.typography.bodyMedium,
+              fontWeight = FontWeight.SemiBold
+            )
+            Text(
+              text = "When enabled, tapping the quick-save notification to open the link in your browser automatically removes it from Summer.",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+          }
+          Switch(
+            checked = settings.removeWhenOpenedFromNotification,
+            onCheckedChange = { checked ->
+              onUpdateSettings { it.copy(removeWhenOpenedFromNotification = checked) }
+            }
+          )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(12.dp))
+
         Text(
           text = "Target Browser App",
           style = MaterialTheme.typography.labelLarge,

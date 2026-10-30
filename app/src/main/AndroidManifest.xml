@@ -56,12 +56,12 @@
             </intent-filter>
         </activity>
 
-        <!-- Translucent Browser & Share Target Trampoline Activity -->
+        <!-- Invisible Browser & Share Target Trampoline Activity -->
         <activity
             android:name=".SaveLinkTrampolineActivity"
             android:exported="true"
             android:label="@string/trampoline_label"
-            android:theme="@style/Theme.Summer.TranslucentOverlay"
+            android:theme="@android:style/Theme.NoDisplay"
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:taskAffinity="">
@@ -95,11 +95,30 @@
             </intent-filter>
         </activity>
 
+        <!-- Invisible Activity to dispatch browser launch and optionally un-save when tapped from notification -->
+        <activity
+            android:name=".OpenNotificationLinkActivity"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="" />
+
         <!-- Foreground Service for Background Podcast Generation & Screen-Off Playback -->
         <service
             android:name=".podcast.PodcastForegroundService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <!-- Receiver for quick action clicks and dismissals from timed saved-link notifications -->
+        <receiver
+            android:name=".receiver.QuickSaveActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="se.oscarb.summer.action.PODCAST_FROM_NOTIFICATION" />
+                <action android:name="se.oscarb.summer.action.DISMISS_NOTIFICATION" />
+            </intent-filter>
+        </receiver>
 
     </application>
 
