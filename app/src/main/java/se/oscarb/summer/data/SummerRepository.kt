@@ -10,10 +10,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import se.oscarb.summer.podcast.PodcastForegroundService
 import se.oscarb.summer.podcast.PodcastPlaybackController
+import se.oscarb.summer.util.WavAudioUtils
 import java.io.File
 import java.util.UUID
 
@@ -30,6 +33,10 @@ class SummerRepository private constructor(private val appContext: Context) {
   private val digestsFile = File(appContext.filesDir, "saved_digests.json")
   private val settingsFile = File(appContext.filesDir, "app_settings.json")
   private val podcastsDir = File(appContext.filesDir, "podcasts").apply { mkdirs() }
+
+  private val websitesPersistMutex = Mutex()
+  private val digestsPersistMutex = Mutex()
+  private val settingsPersistMutex = Mutex()
 
   private val aiService = AiSummaryService(appContext)
   private val podcastTtsService = PodcastTtsService(appContext)
@@ -103,24 +110,33 @@ class SummerRepository private constructor(private val appContext: Context) {
 
   private fun persistWebsites() {
     scope.launch {
-      runCatching {
-        websitesFile.writeText(json.encodeToString(_websites.value))
+      websitesPersistMutex.withLock {
+        runCatching {
+          val encoded = json.encodeToString(_websites.value).toByteArray(Charsets.UTF_8)
+          WavAudioUtils.writeBytesAtomically(websitesFile, encoded)
+        }
       }
     }
   }
 
   private fun persistDigests() {
     scope.launch {
-      runCatching {
-        digestsFile.writeText(json.encodeToString(_digests.value))
+      digestsPersistMutex.withLock {
+        runCatching {
+          val encoded = json.encodeToString(_digests.value).toByteArray(Charsets.UTF_8)
+          WavAudioUtils.writeBytesAtomically(digestsFile, encoded)
+        }
       }
     }
   }
 
   private fun persistSettings() {
     scope.launch {
-      runCatching {
-        settingsFile.writeText(json.encodeToString(_settings.value))
+      settingsPersistMutex.withLock {
+        runCatching {
+          val encoded = json.encodeToString(_settings.value).toByteArray(Charsets.UTF_8)
+          WavAudioUtils.writeBytesAtomically(settingsFile, encoded)
+        }
       }
     }
   }
@@ -377,6 +393,11 @@ class SummerRepository private constructor(private val appContext: Context) {
         return@launch
       }
 
+      if (forceRegenerate && playbackController.state.value.activeDigestId == digestId) {
+        playbackController.stop()
+      }
+
+      val jobKey = "digest:$digestId"
       val episodeTitle = "Catch Me Up (${digest.sourceWebsites.size} articles)"
       updateDigestPodcastStatus(
         digestId = digestId,
@@ -384,8 +405,8 @@ class SummerRepository private constructor(private val appContext: Context) {
         statusText = "Writing 2-host conversation with a red line across ${digest.sourceWebsites.size} articles...",
         error = null
       )
-      playbackController.updateBackgroundGenerationStatus(
-        isGenerating = true,
+      playbackController.setGenerationProgress(
+        jobKey = jobKey,
         title = episodeTitle,
         statusText = "Step 1/2: Writing 2-host dialogue script..."
       )
@@ -444,8 +465,8 @@ class SummerRepository private constructor(private val appContext: Context) {
               statusText = progressMsg,
               error = null
             )
-            playbackController.updateBackgroundGenerationStatus(
-              isGenerating = true,
+            playbackController.setGenerationProgress(
+              jobKey = jobKey,
               title = episodeTitle,
               statusText = progressMsg
             )
@@ -471,14 +492,15 @@ class SummerRepository private constructor(private val appContext: Context) {
         persistDigests()
 
         val subtitle = "${currentSettings.hostAName} & ${currentSettings.hostBName} • ${audioResult.providerUsed}"
-        playbackController.updateBackgroundGenerationStatus(isGenerating = false)
+        playbackController.clearGenerationProgress(jobKey)
 
         if (autoPlayWhenReady) {
           playbackController.playEpisode(
             audioFile = audioResult.audioFile,
             title = episodeTitle,
             subtitle = subtitle,
-            digestId = digestId
+            digestId = digestId,
+            forceReload = true
           )
         } else {
           PodcastForegroundService.notifyPodcastReady(
@@ -496,7 +518,7 @@ class SummerRepository private constructor(private val appContext: Context) {
           statusText = null,
           error = null
         )
-        playbackController.updateBackgroundGenerationStatus(isGenerating = false)
+        playbackController.clearGenerationProgress(jobKey)
         throw ce
       } catch (e: Exception) {
         updateDigestPodcastStatus(
@@ -505,7 +527,7 @@ class SummerRepository private constructor(private val appContext: Context) {
           statusText = null,
           error = e.message ?: "Failed to generate podcast audio."
         )
-        playbackController.updateBackgroundGenerationStatus(isGenerating = false)
+        playbackController.clearGenerationProgress(jobKey)
       }
     }
   }
@@ -537,14 +559,19 @@ class SummerRepository private constructor(private val appContext: Context) {
         return@launch
       }
 
+      if (forceRegenerate && playbackController.state.value.activeWebsiteId == websiteId) {
+        playbackController.stop()
+      }
+
+      val jobKey = "website:$websiteId"
       updateWebsitePodcastStatus(
         websiteId = websiteId,
         isGenerating = true,
         statusText = "Writing natural spoken script...",
         error = null
       )
-      playbackController.updateBackgroundGenerationStatus(
-        isGenerating = true,
+      playbackController.setGenerationProgress(
+        jobKey = jobKey,
         title = site.title,
         statusText = "Writing natural spoken summary..."
       )
@@ -598,8 +625,8 @@ class SummerRepository private constructor(private val appContext: Context) {
               statusText = progressMsg,
               error = null
             )
-            playbackController.updateBackgroundGenerationStatus(
-              isGenerating = true,
+            playbackController.setGenerationProgress(
+              jobKey = jobKey,
               title = preparedSite.title,
               statusText = progressMsg
             )
@@ -625,14 +652,15 @@ class SummerRepository private constructor(private val appContext: Context) {
         persistWebsites()
 
         val subtitle = "${currentSettings.hostAName} & ${currentSettings.hostBName} • ${preparedSite.domain}"
-        playbackController.updateBackgroundGenerationStatus(isGenerating = false)
+        playbackController.clearGenerationProgress(jobKey)
 
         if (autoPlayWhenReady) {
           playbackController.playEpisode(
             audioFile = audioResult.audioFile,
             title = preparedSite.title,
             subtitle = subtitle,
-            websiteId = websiteId
+            websiteId = websiteId,
+            forceReload = true
           )
         } else {
           PodcastForegroundService.notifyPodcastReady(
@@ -650,7 +678,7 @@ class SummerRepository private constructor(private val appContext: Context) {
           statusText = null,
           error = null
         )
-        playbackController.updateBackgroundGenerationStatus(isGenerating = false)
+        playbackController.clearGenerationProgress(jobKey)
         throw ce
       } catch (e: Exception) {
         updateWebsitePodcastStatus(
@@ -659,7 +687,7 @@ class SummerRepository private constructor(private val appContext: Context) {
           statusText = null,
           error = e.message ?: "Failed to generate spoken audio."
         )
-        playbackController.updateBackgroundGenerationStatus(isGenerating = false)
+        playbackController.clearGenerationProgress(jobKey)
       }
     }
   }

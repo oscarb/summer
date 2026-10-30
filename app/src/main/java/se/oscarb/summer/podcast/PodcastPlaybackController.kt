@@ -40,9 +40,14 @@ data class PodcastPlaybackState(
   val generationStatusText: String? = null
 )
 
+private data class ActiveGenerationInfo(
+  val title: String,
+  val statusText: String
+)
+
 /**
  * Manages podcast audio playback, MediaSession integration (lock screen, notification shade,
- * and Bluetooth headphone controls), audio focus, and background generation status.
+ * and Bluetooth headphone controls), audio focus, and keyed background generation status.
  */
 class PodcastPlaybackController private constructor(private val appContext: Context) {
 
@@ -53,8 +58,15 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
   val state: StateFlow<PodcastPlaybackState> = _state.asStateFlow()
 
   private var mediaPlayer: MediaPlayer? = null
+  private var isPrepared: Boolean = false
+  private var playbackCompleted: Boolean = false
+  private var loadedFileLastModified: Long = -1L
+  private var activePlayToken: Long = 0L
   private var progressJob: Job? = null
   private var audioFocusRequest: AudioFocusRequest? = null
+
+  private val generationsLock = Any()
+  private val activeGenerations = LinkedHashMap<String, ActiveGenerationInfo>()
 
   private val mediaSession: MediaSession = MediaSession(appContext, "SummerPodcastSession").apply {
     setCallback(object : MediaSession.Callback() {
@@ -130,19 +142,46 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
     title: String,
     subtitle: String,
     digestId: String? = null,
-    websiteId: String? = null
+    websiteId: String? = null,
+    forceReload: Boolean = false
   ) {
     if (!audioFile.exists()) return
+    val fileMtime = audioFile.lastModified()
+
+    // If the exact same unmodified file is already prepared, just resume (with EOF rewind support)
+    val current = _state.value
+    if (
+      !forceReload &&
+      current.isActive &&
+      current.audioFilePath == audioFile.absolutePath &&
+      mediaPlayer != null &&
+      isPrepared &&
+      fileMtime == loadedFileLastModified
+    ) {
+      resume()
+      return
+    }
+
+    // Update state synchronously first so foreground-service promotion in onStartCommand sees
+    // isActive == true immediately while MediaPlayer prepares asynchronously off the UI thread.
+    _state.update {
+      it.copy(
+        isActive = true,
+        isPlaying = true,
+        activeDigestId = digestId,
+        activeWebsiteId = websiteId,
+        title = title,
+        subtitle = subtitle,
+        audioFilePath = audioFile.absolutePath,
+        positionMs = 0L,
+        durationMs = 0L
+      )
+    }
 
     scope.launch {
-      // If the exact same file is already loaded, just resume playback
-      val current = _state.value
-      if (current.isActive && current.audioFilePath == audioFile.absolutePath && mediaPlayer != null) {
-        resume()
-        return@launch
-      }
-
+      val token = ++activePlayToken
       releasePlayerOnly()
+      loadedFileLastModified = fileMtime
       requestAudioFocus()
 
       try {
@@ -155,39 +194,52 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
               .build()
           )
           setDataSource(audioFile.absolutePath)
-          setOnCompletionListener {
-            onPlaybackCompleted()
+          setOnPreparedListener { mp ->
+            if (token != activePlayToken) {
+              runCatching { mp.release() }
+              return@setOnPreparedListener
+            }
+            isPrepared = true
+            playbackCompleted = false
+            val duration = runCatching { mp.duration.toLong() }.getOrDefault(0L).coerceAtLeast(0L)
+            val shouldStart = _state.value.isPlaying
+            if (shouldStart) {
+              runCatching { mp.start() }
+            }
+            _state.update { it.copy(durationMs = duration, positionMs = 0L) }
+            mediaSession.isActive = true
+            updateMediaSessionMetadata(title, subtitle, duration)
+            updateMediaSessionPlaybackState(isPlaying = shouldStart, positionMs = 0L)
+            if (shouldStart) {
+              startProgressTicker()
+            }
+            PodcastForegroundService.startOrUpdate(appContext)
           }
-          prepare()
-          start()
+          setOnCompletionListener {
+            if (token == activePlayToken) {
+              onPlaybackCompleted()
+            }
+          }
+          setOnErrorListener { _, _, _ ->
+            if (token == activePlayToken) {
+              stop()
+            }
+            true
+          }
         }
 
         mediaPlayer = player
-        val duration = player.duration.toLong().coerceAtLeast(0L)
-
-        _state.update {
-          it.copy(
-            isActive = true,
-            isPlaying = true,
-            activeDigestId = digestId,
-            activeWebsiteId = websiteId,
-            title = title,
-            subtitle = subtitle,
-            audioFilePath = audioFile.absolutePath,
-            positionMs = 0L,
-            durationMs = duration
-          )
-        }
-
         mediaSession.isActive = true
-        updateMediaSessionMetadata(title, subtitle, duration)
+        updateMediaSessionMetadata(title, subtitle, 0L)
         updateMediaSessionPlaybackState(isPlaying = true, positionMs = 0L)
-        startProgressTicker()
         PodcastForegroundService.startOrUpdate(appContext)
+        player.prepareAsync()
       } catch (ce: CancellationException) {
         throw ce
-      } catch (e: Exception) {
+      } catch (_: Exception) {
         releasePlayerOnly()
+        _state.update { it.copy(isActive = false, isPlaying = false) }
+        PodcastForegroundService.startOrUpdate(appContext)
       }
     }
   }
@@ -202,6 +254,12 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
 
   fun pause() {
     val player = mediaPlayer ?: return
+    if (!isPrepared) {
+      _state.update { it.copy(isPlaying = false) }
+      updateMediaSessionPlaybackState(isPlaying = false, positionMs = 0L)
+      PodcastForegroundService.startOrUpdate(appContext)
+      return
+    }
     runCatching {
       if (player.isPlaying) {
         player.pause()
@@ -225,18 +283,41 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
           title = _state.value.title,
           subtitle = _state.value.subtitle,
           digestId = _state.value.activeDigestId,
-          websiteId = _state.value.activeWebsiteId
+          websiteId = _state.value.activeWebsiteId,
+          forceReload = true
         )
       }
       return
     }
+    if (!isPrepared) {
+      _state.update { it.copy(isPlaying = true) }
+      updateMediaSessionPlaybackState(isPlaying = true, positionMs = 0L)
+      PodcastForegroundService.startOrUpdate(appContext)
+      return
+    }
+
+    val duration = runCatching { player.duration.toLong() }
+      .getOrDefault(_state.value.durationMs)
+      .coerceAtLeast(_state.value.durationMs)
+    val currentPos = runCatching { player.currentPosition.toLong() }
+      .getOrDefault(_state.value.positionMs)
+    val shouldRewind = playbackCompleted || (duration > 0L && currentPos >= duration - 250L)
+
     requestAudioFocus()
+    if (shouldRewind) {
+      runCatching { player.seekTo(0) }
+      playbackCompleted = false
+    }
     runCatching {
       if (!player.isPlaying) {
         player.start()
       }
     }
-    val pos = runCatching { player.currentPosition.toLong() }.getOrDefault(_state.value.positionMs)
+    val pos = if (shouldRewind) {
+      0L
+    } else {
+      runCatching { player.currentPosition.toLong() }.getOrDefault(currentPos)
+    }
     _state.update { it.copy(isPlaying = true, positionMs = pos) }
     mediaSession.isActive = true
     updateMediaSessionPlaybackState(isPlaying = true, positionMs = pos)
@@ -246,8 +327,12 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
 
   fun seekTo(positionMs: Long) {
     val player = mediaPlayer ?: return
+    if (!isPrepared) return
     val duration = _state.value.durationMs.coerceAtLeast(1L)
     val clamped = positionMs.coerceIn(0L, duration)
+    if (clamped < duration - 250L) {
+      playbackCompleted = false
+    }
     runCatching {
       player.seekTo(clamped.toInt())
     }
@@ -257,11 +342,13 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
 
   fun skipBy(deltaMs: Long) {
     val player = mediaPlayer ?: return
+    if (!isPrepared) return
     val currentPos = runCatching { player.currentPosition.toLong() }.getOrDefault(_state.value.positionMs)
     seekTo(currentPos + deltaMs)
   }
 
   fun stop() {
+    activePlayToken++
     releasePlayerOnly()
     abandonAudioFocus()
     mediaSession.isActive = false
@@ -279,22 +366,51 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
     PodcastForegroundService.startOrUpdate(appContext)
   }
 
-  fun updateBackgroundGenerationStatus(
-    isGenerating: Boolean,
-    title: String? = null,
-    statusText: String? = null
+  fun setGenerationProgress(
+    jobKey: String,
+    title: String,
+    statusText: String
   ) {
+    val (displayTitle, displayStatus) = synchronized(generationsLock) {
+      activeGenerations[jobKey] = ActiveGenerationInfo(title = title, statusText = statusText)
+      val count = activeGenerations.size
+      val formattedTitle = if (count > 1) "$title (+${count - 1} more)" else title
+      formattedTitle to statusText
+    }
     _state.update {
       it.copy(
-        isGeneratingInBackground = isGenerating,
-        generationTitle = if (isGenerating) title else null,
-        generationStatusText = if (isGenerating) statusText else null
+        isGeneratingInBackground = true,
+        generationTitle = displayTitle,
+        generationStatusText = displayStatus
+      )
+    }
+    PodcastForegroundService.startOrUpdate(appContext)
+  }
+
+  fun clearGenerationProgress(jobKey: String) {
+    val remainingSnapshot: Triple<Boolean, String?, String?> = synchronized(generationsLock) {
+      activeGenerations.remove(jobKey)
+      val latest = activeGenerations.values.lastOrNull()
+      val count = activeGenerations.size
+      if (latest != null) {
+        val formattedTitle = if (count > 1) "${latest.title} (+${count - 1} more)" else latest.title
+        Triple(true, formattedTitle, latest.statusText)
+      } else {
+        Triple(false, null, null)
+      }
+    }
+    _state.update {
+      it.copy(
+        isGeneratingInBackground = remainingSnapshot.first,
+        generationTitle = remainingSnapshot.second,
+        generationStatusText = remainingSnapshot.third
       )
     }
     PodcastForegroundService.startOrUpdate(appContext)
   }
 
   private fun onPlaybackCompleted() {
+    playbackCompleted = true
     val duration = _state.value.durationMs
     _state.update { it.copy(isPlaying = false, positionMs = duration) }
     updateMediaSessionPlaybackState(isPlaying = false, positionMs = duration)
@@ -307,7 +423,7 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
     progressJob = scope.launch {
       while (isActive && _state.value.isPlaying) {
         val player = mediaPlayer
-        if (player != null && runCatching { player.isPlaying }.getOrDefault(false)) {
+        if (player != null && isPrepared && runCatching { player.isPlaying }.getOrDefault(false)) {
           val pos = runCatching { player.currentPosition.toLong() }.getOrDefault(0L)
           val dur = runCatching { player.duration.toLong() }.getOrDefault(_state.value.durationMs)
           _state.update { it.copy(positionMs = pos, durationMs = dur.coerceAtLeast(it.durationMs)) }
@@ -325,13 +441,13 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
 
   private fun releasePlayerOnly() {
     stopProgressTicker()
-    runCatching {
-      mediaPlayer?.stop()
+    if (isPrepared) {
+      runCatching { mediaPlayer?.stop() }
     }
-    runCatching {
-      mediaPlayer?.release()
-    }
+    runCatching { mediaPlayer?.release() }
     mediaPlayer = null
+    isPrepared = false
+    playbackCompleted = false
   }
 
   private fun requestAudioFocus() {

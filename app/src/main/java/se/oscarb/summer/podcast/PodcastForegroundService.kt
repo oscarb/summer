@@ -12,6 +12,7 @@ import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import se.oscarb.summer.MainActivity
 import java.io.File
 
@@ -25,9 +26,11 @@ import java.io.File
 class PodcastForegroundService : Service() {
 
   private var generationWakeLock: PowerManager.WakeLock? = null
+  private var isInForeground: Boolean = false
 
   override fun onCreate() {
     super.onCreate()
+    isServiceRunning = true
     ensureNotificationChannels(this)
   }
 
@@ -42,9 +45,7 @@ class PodcastForegroundService : Service() {
       ACTION_FORWARD_15 -> controller.skipBy(15_000L)
       ACTION_STOP -> {
         controller.stop()
-        releaseGenerationWakeLock()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        shutdownForegroundService()
         return START_NOT_STICKY
       }
       ACTION_PLAY_READY_FILE -> {
@@ -53,8 +54,9 @@ class PodcastForegroundService : Service() {
         val subtitle = intent.getStringExtra(EXTRA_SUBTITLE).orEmpty()
         val digestId = intent.getStringExtra(EXTRA_DIGEST_ID)
         val websiteId = intent.getStringExtra(EXTRA_WEBSITE_ID)
+        val readyNotifId = intent.getIntExtra(EXTRA_READY_NOTIFICATION_ID, NOTIFICATION_ID_READY_BASE)
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.cancel(NOTIFICATION_ID_READY)
+        nm.cancel(readyNotifId)
         if (!filePath.isNullOrBlank()) {
           val file = File(filePath)
           if (file.exists()) {
@@ -63,7 +65,8 @@ class PodcastForegroundService : Service() {
               title = title,
               subtitle = subtitle,
               digestId = digestId,
-              websiteId = websiteId
+              websiteId = websiteId,
+              forceReload = true
             )
           }
         }
@@ -80,21 +83,30 @@ class PodcastForegroundService : Service() {
       val notification = buildGenerationNotification(state)
       startForegroundCompat(NOTIFICATION_ID_FOREGROUND, notification)
     } else {
-      releaseGenerationWakeLock()
-      stopForeground(STOP_FOREGROUND_REMOVE)
-      stopSelf()
+      shutdownForegroundService()
     }
 
     return START_NOT_STICKY
   }
 
   override fun onDestroy() {
+    isServiceRunning = false
+    isInForeground = false
     releaseGenerationWakeLock()
     super.onDestroy()
   }
 
+  private fun shutdownForegroundService() {
+    releaseGenerationWakeLock()
+    if (isInForeground) {
+      runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+      isInForeground = false
+    }
+    stopSelf()
+  }
+
   private fun startForegroundCompat(notificationId: Int, notification: Notification) {
-    runCatching {
+    try {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         startForeground(
           notificationId,
@@ -103,6 +115,13 @@ class PodcastForegroundService : Service() {
         )
       } else {
         startForeground(notificationId, notification)
+      }
+      isInForeground = true
+    } catch (e: Exception) {
+      Log.w(TAG, "Unable to promote PodcastForegroundService to foreground: ${e.message}")
+      releaseGenerationWakeLock()
+      if (!isInForeground) {
+        stopSelf()
       }
     }
   }
@@ -239,10 +258,14 @@ class PodcastForegroundService : Service() {
   }
 
   companion object {
+    private const val TAG = "PodcastFgService"
     private const val CHANNEL_PLAYBACK = "summer_podcast_playback"
     private const val CHANNEL_GENERATION = "summer_podcast_generation"
     private const val NOTIFICATION_ID_FOREGROUND = 4101
-    private const val NOTIFICATION_ID_READY = 4102
+    private const val NOTIFICATION_ID_READY_BASE = 4200
+
+    @Volatile
+    private var isServiceRunning: Boolean = false
 
     const val ACTION_UPDATE = "se.oscarb.summer.podcast.ACTION_UPDATE"
     const val ACTION_TOGGLE_PLAY = "se.oscarb.summer.podcast.ACTION_TOGGLE_PLAY"
@@ -256,6 +279,7 @@ class PodcastForegroundService : Service() {
     private const val EXTRA_SUBTITLE = "extra_subtitle"
     private const val EXTRA_DIGEST_ID = "extra_digest_id"
     private const val EXTRA_WEBSITE_ID = "extra_website_id"
+    private const val EXTRA_READY_NOTIFICATION_ID = "extra_ready_notification_id"
 
     fun ensureNotificationChannels(context: Context) {
       val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -287,8 +311,9 @@ class PodcastForegroundService : Service() {
       runCatching {
         if (state.isActive || state.isGeneratingInBackground) {
           appCtx.startForegroundService(intent)
-        } else {
-          appCtx.startService(intent)
+        } else if (isServiceRunning) {
+          // stopService is permitted even when the app is backgrounded/screen-off on Android 8+
+          appCtx.stopService(Intent(appCtx, PodcastForegroundService::class.java))
         }
       }
     }
@@ -308,6 +333,9 @@ class PodcastForegroundService : Service() {
       val appCtx = context.applicationContext
       ensureNotificationChannels(appCtx)
 
+      val key = digestId ?: websiteId ?: audioFile.absolutePath
+      val notificationId = NOTIFICATION_ID_READY_BASE + (key.hashCode() and 0x7FFF)
+
       val openAppIntent = Intent(appCtx, MainActivity::class.java).apply {
         flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
       }
@@ -325,10 +353,12 @@ class PodcastForegroundService : Service() {
         putExtra(EXTRA_SUBTITLE, subtitle)
         putExtra(EXTRA_DIGEST_ID, digestId)
         putExtra(EXTRA_WEBSITE_ID, websiteId)
+        putExtra(EXTRA_READY_NOTIFICATION_ID, notificationId)
       }
-      val playPendingIntent = PendingIntent.getService(
+      // Use getForegroundService so tapping "Play Episode" from lock screen / background works on Android 8+/12+
+      val playPendingIntent = PendingIntent.getForegroundService(
         appCtx,
-        301,
+        notificationId,
         playIntent,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
       )
@@ -351,7 +381,7 @@ class PodcastForegroundService : Service() {
 
       runCatching {
         val nm = appCtx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(NOTIFICATION_ID_READY, notification)
+        nm.notify(notificationId, notification)
       }
     }
   }
