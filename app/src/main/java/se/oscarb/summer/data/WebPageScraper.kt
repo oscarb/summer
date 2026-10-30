@@ -1,5 +1,6 @@
 package se.oscarb.summer.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
@@ -100,6 +101,8 @@ object WebPageScraper {
         domain = domain,
         readableContent = combinedContent
       )
+    } catch (ce: CancellationException) {
+      throw ce
     } catch (_: Exception) {
       ScrapedPageData(
         title = domain,

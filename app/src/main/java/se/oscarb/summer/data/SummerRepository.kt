@@ -1,6 +1,7 @@
 package se.oscarb.summer.data
 
 import android.content.Context
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -9,8 +10,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import se.oscarb.summer.podcast.PodcastForegroundService
+import se.oscarb.summer.podcast.PodcastPlaybackController
+import se.oscarb.summer.util.WavAudioUtils
 import java.io.File
 import java.util.UUID
 
@@ -26,8 +32,15 @@ class SummerRepository private constructor(private val appContext: Context) {
   private val websitesFile = File(appContext.filesDir, "saved_websites.json")
   private val digestsFile = File(appContext.filesDir, "saved_digests.json")
   private val settingsFile = File(appContext.filesDir, "app_settings.json")
+  private val podcastsDir = File(appContext.filesDir, "podcasts").apply { mkdirs() }
+
+  private val websitesPersistMutex = Mutex()
+  private val digestsPersistMutex = Mutex()
+  private val settingsPersistMutex = Mutex()
 
   private val aiService = AiSummaryService(appContext)
+  private val podcastTtsService = PodcastTtsService(appContext)
+  private val playbackController = PodcastPlaybackController.getInstance(appContext)
 
   private val _websites = MutableStateFlow<List<SavedWebsite>>(emptyList())
   val websites: StateFlow<List<SavedWebsite>> = _websites.asStateFlow()
@@ -48,45 +61,82 @@ class SummerRepository private constructor(private val appContext: Context) {
   private fun loadFromDisk() {
     runCatching {
       if (settingsFile.exists()) {
-        _settings.value = json.decodeFromString<AppSettings>(settingsFile.readText())
+        val loaded = json.decodeFromString<AppSettings>(settingsFile.readText())
+        val normalizedVoiceA = GeminiCatalog.resolveValidVoice(loaded.geminiHostAVoice, "Puck")
+        val normalizedVoiceB = GeminiCatalog.resolveValidVoice(loaded.geminiHostBVoice, "Kore")
+        val sanitized = loaded.copy(
+          geminiHostAVoice = normalizedVoiceA,
+          geminiHostBVoice = normalizedVoiceB
+        )
+        _settings.value = sanitized
+        if (sanitized != loaded) {
+          persistSettings()
+        }
       }
     }
     runCatching {
       if (websitesFile.exists()) {
         val loaded = json.decodeFromString<List<SavedWebsite>>(websitesFile.readText())
         _websites.value = loaded
-          .map { it.copy(isSummarizing = false, isLoadingMetadata = false) }
+          .map {
+            val validAudio = it.podcastAudioPath?.takeIf { path -> File(path).exists() }
+            it.copy(
+              isSummarizing = false,
+              isLoadingMetadata = false,
+              isGeneratingPodcast = false,
+              podcastStatusText = null,
+              podcastAudioPath = validAudio
+            )
+          }
           .sortedByDescending { it.updatedAt }
       }
     }
     runCatching {
       if (digestsFile.exists()) {
         val loaded = json.decodeFromString<List<DigestEntry>>(digestsFile.readText())
-        _digests.value = loaded.sortedByDescending { it.createdAt }
+        _digests.value = loaded
+          .map {
+            val validAudio = it.podcastAudioPath?.takeIf { path -> File(path).exists() }
+            it.copy(
+              isGeneratingPodcast = false,
+              podcastStatusText = null,
+              podcastAudioPath = validAudio
+            )
+          }
+          .sortedByDescending { it.createdAt }
       }
     }
   }
 
   private fun persistWebsites() {
     scope.launch {
-      runCatching {
-        websitesFile.writeText(json.encodeToString(_websites.value))
+      websitesPersistMutex.withLock {
+        runCatching {
+          val encoded = json.encodeToString(_websites.value).toByteArray(Charsets.UTF_8)
+          WavAudioUtils.writeBytesAtomically(websitesFile, encoded)
+        }
       }
     }
   }
 
   private fun persistDigests() {
     scope.launch {
-      runCatching {
-        digestsFile.writeText(json.encodeToString(_digests.value))
+      digestsPersistMutex.withLock {
+        runCatching {
+          val encoded = json.encodeToString(_digests.value).toByteArray(Charsets.UTF_8)
+          WavAudioUtils.writeBytesAtomically(digestsFile, encoded)
+        }
       }
     }
   }
 
   private fun persistSettings() {
     scope.launch {
-      runCatching {
-        settingsFile.writeText(json.encodeToString(_settings.value))
+      settingsPersistMutex.withLock {
+        runCatching {
+          val encoded = json.encodeToString(_settings.value).toByteArray(Charsets.UTF_8)
+          WavAudioUtils.writeBytesAtomically(settingsFile, encoded)
+        }
       }
     }
   }
@@ -94,6 +144,14 @@ class SummerRepository private constructor(private val appContext: Context) {
   fun updateSettings(transform: (AppSettings) -> AppSettings) {
     _settings.update(transform)
     persistSettings()
+  }
+
+  suspend fun verifyTextBackendAccess(): Result<String> {
+    return aiService.verifyTextBackendAccess(_settings.value)
+  }
+
+  suspend fun verifyGeminiTtsAccess(): Result<String> {
+    return podcastTtsService.verifyGeminiTtsAccess(_settings.value)
   }
 
   /**
@@ -166,6 +224,18 @@ class SummerRepository private constructor(private val appContext: Context) {
         val currentItem = _websites.value.firstOrNull { it.id == targetId }
         if (currentItem != null && currentItem.summary.isNullOrBlank()) {
           summarizeWebsite(targetId)
+        }
+      }
+
+      // Auto-generate individual article podcast in background if enabled in Settings
+      if (_settings.value.autoGenerateArticlePodcastOnSave) {
+        val currentItem = _websites.value.firstOrNull { it.id == targetId }
+        if (currentItem != null && currentItem.podcastAudioPath.isNullOrBlank()) {
+          generateOrPlayWebsitePodcast(
+            websiteId = targetId,
+            forceRegenerate = false,
+            autoPlayWhenReady = false
+          )
         }
       }
     }
@@ -259,8 +329,9 @@ class SummerRepository private constructor(private val appContext: Context) {
       val currentSettings = _settings.value
       val summaryResult = aiService.generateCatchMeUpDigest(enrichedItems, currentSettings)
       summaryResult.map { markdown ->
+        val digestId = UUID.randomUUID().toString()
         val digest = DigestEntry(
-          id = UUID.randomUUID().toString(),
+          id = digestId,
           createdAt = System.currentTimeMillis(),
           summaryMarkdown = markdown,
           providerName = currentSettings.selectedBackend.displayName,
@@ -278,10 +349,388 @@ class SummerRepository private constructor(private val appContext: Context) {
           (listOf(digest) + current).sortedByDescending { it.createdAt }
         }
         persistDigests()
+
+        if (currentSettings.autoGeneratePodcastOnDigest) {
+          generatePodcastForDigest(
+            digestId = digestId,
+            forceRegenerate = false,
+            autoPlayWhenReady = false
+          )
+        }
+
         digest
       }
     } finally {
       _isGeneratingDigest.value = false
+    }
+  }
+
+  /**
+   * Generates (or plays if already cached) a 2-host podcast episode with a narrative "red line"
+   * across all articles in the specified [digestId]. Runs in the background so the user can
+   * switch apps or turn off the screen while it generates.
+   */
+  fun generatePodcastForDigest(
+    digestId: String,
+    forceRegenerate: Boolean = false,
+    autoPlayWhenReady: Boolean = false
+  ) {
+    scope.launch {
+      val digest = _digests.value.firstOrNull { it.id == digestId } ?: return@launch
+      if (digest.isGeneratingPodcast) return@launch
+
+      val existingFile = digest.podcastAudioPath?.let { File(it) }
+      if (!forceRegenerate && existingFile != null && existingFile.exists()) {
+        if (autoPlayWhenReady) {
+          val settings = _settings.value
+          playbackController.playEpisode(
+            audioFile = existingFile,
+            title = "Catch Me Up (${digest.sourceWebsites.size} articles)",
+            subtitle = "${settings.hostAName} & ${settings.hostBName} • ${digest.podcastVoiceProvider ?: "Podcast"}",
+            digestId = digest.id
+          )
+        }
+        return@launch
+      }
+
+      if (forceRegenerate && playbackController.state.value.activeDigestId == digestId) {
+        playbackController.stop()
+      }
+
+      val jobKey = "digest:$digestId"
+      val episodeTitle = "Catch Me Up (${digest.sourceWebsites.size} articles)"
+      updateDigestPodcastStatus(
+        digestId = digestId,
+        isGenerating = true,
+        statusText = "Writing 2-host conversation with a red line across ${digest.sourceWebsites.size} articles...",
+        error = null
+      )
+      playbackController.setGenerationProgress(
+        jobKey = jobKey,
+        title = episodeTitle,
+        statusText = "Step 1/2: Writing 2-host dialogue script..."
+      )
+
+      try {
+        val currentSettings = _settings.value
+        val sourceIds = digest.sourceWebsites.map { it.id }.toSet()
+        val matchedSites = _websites.value.filter { it.id in sourceIds }.ifEmpty {
+          digest.sourceWebsites.map {
+            SavedWebsite(
+              id = it.id,
+              url = it.url,
+              domain = it.domain,
+              title = it.title,
+              faviconUrl = it.faviconUrl,
+              createdAt = digest.createdAt,
+              updatedAt = digest.createdAt
+            )
+          }
+        }
+
+        val script = if (!forceRegenerate && !digest.podcastScript.isNullOrBlank()) {
+          digest.podcastScript
+        } else {
+          aiService.generateCatchMeUpPodcastScript(
+            websites = matchedSites,
+            existingDigestMarkdown = digest.summaryMarkdown,
+            settings = currentSettings
+          ).getOrThrow()
+        }
+
+        // Save the script immediately so the user can view the 2-host transcript right away
+        _digests.update { list ->
+          list.map {
+            if (it.id == digestId) {
+              it.copy(
+                podcastScript = script,
+                podcastStatusText = "Synthesizing 2-host voices (${currentSettings.hostAName} & ${currentSettings.hostBName})..."
+              )
+            } else {
+              it
+            }
+          }
+        }
+        persistDigests()
+
+        val outputFile = File(podcastsDir, "digest_${digestId}.wav")
+        val audioResult = podcastTtsService.synthesizePodcastScript(
+          rawScript = script,
+          outputWavFile = outputFile,
+          settings = currentSettings,
+          onProgress = { progressMsg ->
+            updateDigestPodcastStatus(
+              digestId = digestId,
+              isGenerating = true,
+              statusText = progressMsg,
+              error = null
+            )
+            playbackController.setGenerationProgress(
+              jobKey = jobKey,
+              title = episodeTitle,
+              statusText = progressMsg
+            )
+          }
+        ).getOrThrow()
+
+        _digests.update { list ->
+          list.map {
+            if (it.id == digestId) {
+              it.copy(
+                podcastScript = script,
+                podcastAudioPath = audioResult.audioFile.absolutePath,
+                podcastVoiceProvider = audioResult.providerUsed,
+                isGeneratingPodcast = false,
+                podcastStatusText = null,
+                podcastError = null
+              )
+            } else {
+              it
+            }
+          }
+        }
+        persistDigests()
+
+        val subtitle = "${currentSettings.hostAName} & ${currentSettings.hostBName} • ${audioResult.providerUsed}"
+        playbackController.clearGenerationProgress(jobKey)
+
+        if (autoPlayWhenReady) {
+          playbackController.playEpisode(
+            audioFile = audioResult.audioFile,
+            title = episodeTitle,
+            subtitle = subtitle,
+            digestId = digestId,
+            forceReload = true
+          )
+        } else {
+          PodcastForegroundService.notifyPodcastReady(
+            context = appContext,
+            title = episodeTitle,
+            subtitle = subtitle,
+            audioFile = audioResult.audioFile,
+            digestId = digestId
+          )
+        }
+      } catch (ce: CancellationException) {
+        updateDigestPodcastStatus(
+          digestId = digestId,
+          isGenerating = false,
+          statusText = null,
+          error = null
+        )
+        playbackController.clearGenerationProgress(jobKey)
+        throw ce
+      } catch (e: Exception) {
+        updateDigestPodcastStatus(
+          digestId = digestId,
+          isGenerating = false,
+          statusText = null,
+          error = e.message ?: "Failed to generate podcast audio."
+        )
+        playbackController.clearGenerationProgress(jobKey)
+      }
+    }
+  }
+
+  /**
+   * Generates (or plays if already cached) a natural spoken 2-host mini-podcast for a single
+   * saved website. Runs in the background so the user can lock the screen or leave the app.
+   */
+  fun generateOrPlayWebsitePodcast(
+    websiteId: String,
+    forceRegenerate: Boolean = false,
+    autoPlayWhenReady: Boolean = true
+  ) {
+    scope.launch {
+      val site = _websites.value.firstOrNull { it.id == websiteId } ?: return@launch
+      if (site.isGeneratingPodcast) return@launch
+
+      val existingFile = site.podcastAudioPath?.let { File(it) }
+      if (!forceRegenerate && existingFile != null && existingFile.exists()) {
+        if (autoPlayWhenReady) {
+          val settings = _settings.value
+          playbackController.playEpisode(
+            audioFile = existingFile,
+            title = site.title,
+            subtitle = "${settings.hostAName} & ${settings.hostBName} • ${site.domain}",
+            websiteId = site.id
+          )
+        }
+        return@launch
+      }
+
+      if (forceRegenerate && playbackController.state.value.activeWebsiteId == websiteId) {
+        playbackController.stop()
+      }
+
+      val jobKey = "website:$websiteId"
+      updateWebsitePodcastStatus(
+        websiteId = websiteId,
+        isGenerating = true,
+        statusText = "Writing natural spoken script...",
+        error = null
+      )
+      playbackController.setGenerationProgress(
+        jobKey = jobKey,
+        title = site.title,
+        statusText = "Writing natural spoken summary..."
+      )
+
+      try {
+        val preparedSite = if (site.extractedContent.isBlank()) {
+          val scraped = WebPageScraper.scrape(site.url)
+          val updated = site.copy(
+            title = scraped.title.ifBlank { site.title },
+            faviconUrl = scraped.faviconUrl.ifBlank { site.faviconUrl },
+            extractedContent = scraped.readableContent
+          )
+          _websites.update { list ->
+            list.map { if (it.id == websiteId) updated.copy(isGeneratingPodcast = true) else it }
+          }
+          updated
+        } else {
+          site
+        }
+
+        val currentSettings = _settings.value
+        val script = if (!forceRegenerate && !preparedSite.podcastScript.isNullOrBlank()) {
+          preparedSite.podcastScript
+        } else {
+          aiService.generateSingleArticlePodcastScript(preparedSite, currentSettings).getOrThrow()
+        }
+
+        _websites.update { list ->
+          list.map {
+            if (it.id == websiteId) {
+              it.copy(
+                podcastScript = script,
+                podcastStatusText = "Synthesizing spoken audio..."
+              )
+            } else {
+              it
+            }
+          }
+        }
+        persistWebsites()
+
+        val outputFile = File(podcastsDir, "website_${websiteId}.wav")
+        val audioResult = podcastTtsService.synthesizePodcastScript(
+          rawScript = script,
+          outputWavFile = outputFile,
+          settings = currentSettings,
+          onProgress = { progressMsg ->
+            updateWebsitePodcastStatus(
+              websiteId = websiteId,
+              isGenerating = true,
+              statusText = progressMsg,
+              error = null
+            )
+            playbackController.setGenerationProgress(
+              jobKey = jobKey,
+              title = preparedSite.title,
+              statusText = progressMsg
+            )
+          }
+        ).getOrThrow()
+
+        _websites.update { list ->
+          list.map {
+            if (it.id == websiteId) {
+              it.copy(
+                podcastScript = script,
+                podcastAudioPath = audioResult.audioFile.absolutePath,
+                podcastVoiceProvider = audioResult.providerUsed,
+                isGeneratingPodcast = false,
+                podcastStatusText = null,
+                podcastError = null
+              )
+            } else {
+              it
+            }
+          }
+        }
+        persistWebsites()
+
+        val subtitle = "${currentSettings.hostAName} & ${currentSettings.hostBName} • ${preparedSite.domain}"
+        playbackController.clearGenerationProgress(jobKey)
+
+        if (autoPlayWhenReady) {
+          playbackController.playEpisode(
+            audioFile = audioResult.audioFile,
+            title = preparedSite.title,
+            subtitle = subtitle,
+            websiteId = websiteId,
+            forceReload = true
+          )
+        } else {
+          PodcastForegroundService.notifyPodcastReady(
+            context = appContext,
+            title = preparedSite.title,
+            subtitle = subtitle,
+            audioFile = audioResult.audioFile,
+            websiteId = websiteId
+          )
+        }
+      } catch (ce: CancellationException) {
+        updateWebsitePodcastStatus(
+          websiteId = websiteId,
+          isGenerating = false,
+          statusText = null,
+          error = null
+        )
+        playbackController.clearGenerationProgress(jobKey)
+        throw ce
+      } catch (e: Exception) {
+        updateWebsitePodcastStatus(
+          websiteId = websiteId,
+          isGenerating = false,
+          statusText = null,
+          error = e.message ?: "Failed to generate spoken audio."
+        )
+        playbackController.clearGenerationProgress(jobKey)
+      }
+    }
+  }
+
+  private fun updateDigestPodcastStatus(
+    digestId: String,
+    isGenerating: Boolean,
+    statusText: String?,
+    error: String?
+  ) {
+    _digests.update { list ->
+      list.map {
+        if (it.id == digestId) {
+          it.copy(
+            isGeneratingPodcast = isGenerating,
+            podcastStatusText = statusText,
+            podcastError = error
+          )
+        } else {
+          it
+        }
+      }
+    }
+  }
+
+  private fun updateWebsitePodcastStatus(
+    websiteId: String,
+    isGenerating: Boolean,
+    statusText: String?,
+    error: String?
+  ) {
+    _websites.update { list ->
+      list.map {
+        if (it.id == websiteId) {
+          it.copy(
+            isGeneratingPodcast = isGenerating,
+            podcastStatusText = statusText,
+            podcastError = error
+          )
+        } else {
+          it
+        }
+      }
     }
   }
 
@@ -312,11 +761,25 @@ class SummerRepository private constructor(private val appContext: Context) {
   }
 
   fun deleteWebsite(websiteId: String) {
+    val target = _websites.value.firstOrNull { it.id == websiteId }
+    target?.podcastAudioPath?.let { path ->
+      runCatching { File(path).delete() }
+    }
+    if (playbackController.state.value.activeWebsiteId == websiteId) {
+      playbackController.stop()
+    }
     _websites.update { list -> list.filterNot { it.id == websiteId } }
     persistWebsites()
   }
 
   fun deleteDigest(digestId: String) {
+    val target = _digests.value.firstOrNull { it.id == digestId }
+    target?.podcastAudioPath?.let { path ->
+      runCatching { File(path).delete() }
+    }
+    if (playbackController.state.value.activeDigestId == digestId) {
+      playbackController.stop()
+    }
     _digests.update { list -> list.filterNot { it.id == digestId } }
     persistDigests()
   }

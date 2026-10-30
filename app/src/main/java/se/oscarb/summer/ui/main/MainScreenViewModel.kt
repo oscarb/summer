@@ -8,12 +8,24 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import se.oscarb.summer.data.AppSettings
 import se.oscarb.summer.data.DigestEntry
 import se.oscarb.summer.data.LinkFilter
 import se.oscarb.summer.data.SavedWebsite
 import se.oscarb.summer.data.SummerRepository
+import se.oscarb.summer.podcast.PodcastPlaybackController
+import se.oscarb.summer.podcast.PodcastPlaybackState
+
+data class VerificationUiState(
+  val isVerifyingTts: Boolean = false,
+  val ttsMessage: String? = null,
+  val ttsIsError: Boolean = false,
+  val isVerifyingBackend: Boolean = false,
+  val backendMessage: String? = null,
+  val backendIsError: Boolean = false
+)
 
 data class SummerUiState(
   val websites: List<SavedWebsite> = emptyList(),
@@ -25,31 +37,44 @@ data class SummerUiState(
   val activeDigestSheet: DigestEntry? = null,
   val isGeneratingDigest: Boolean = false,
   val digestError: String? = null,
-  val settings: AppSettings = AppSettings()
+  val settings: AppSettings = AppSettings(),
+  val podcastPlayback: PodcastPlaybackState = PodcastPlaybackState(),
+  val verification: VerificationUiState = VerificationUiState()
 )
 
 class MainScreenViewModel(application: Application) : AndroidViewModel(application) {
 
   private val repository = SummerRepository.getInstance(application)
+  private val playbackController = PodcastPlaybackController.getInstance(application)
 
   private val _activeFilter = MutableStateFlow(LinkFilter.UNREAD)
   private val _expandedIds = MutableStateFlow<Set<String>>(emptySet())
   private val _activeDigestSheet = MutableStateFlow<DigestEntry?>(null)
   private val _digestError = MutableStateFlow<String?>(null)
+  private val _verification = MutableStateFlow(VerificationUiState())
 
   val uiState: StateFlow<SummerUiState> = combine(
     repository.websites,
     repository.digests,
     repository.settings,
     repository.isGeneratingDigest,
-    combine(_activeFilter, _expandedIds, _activeDigestSheet, _digestError) { filter, expanded, sheet, err ->
-      Quad(filter, expanded, sheet, err)
+    combine(
+      _activeFilter,
+      _expandedIds,
+      _activeDigestSheet,
+      _digestError,
+      combine(playbackController.state, _verification) { pb, ver -> pb to ver }
+    ) { filter, expanded, sheet, err, (playback, verification) ->
+      Sextet(filter, expanded, sheet, err, playback, verification)
     }
-  ) { websites, digests, settings, isGeneratingDigest, (filter, expanded, sheet, err) ->
+  ) { websites, digests, settings, isGeneratingDigest, (filter, expanded, sheet, err, playback, verification) ->
     val filtered = when (filter) {
       LinkFilter.UNREAD -> websites.filter { !it.isArchived }
       LinkFilter.ALL -> websites
       LinkFilter.ARCHIVED -> websites.filter { it.isArchived }
+    }
+    val liveSheet = sheet?.let { active ->
+      digests.firstOrNull { it.id == active.id } ?: active
     }
     SummerUiState(
       websites = websites,
@@ -58,10 +83,12 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
       activeFilter = filter,
       expandedWebsiteIds = expanded,
       digests = digests,
-      activeDigestSheet = sheet,
+      activeDigestSheet = liveSheet,
       isGeneratingDigest = isGeneratingDigest,
       digestError = err,
-      settings = settings
+      settings = settings,
+      podcastPlayback = playback,
+      verification = verification
     )
   }.stateIn(
     scope = viewModelScope,
@@ -148,5 +175,120 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     repository.updateSettings(transform)
   }
 
-  private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+  fun verifyGeminiTts() {
+    if (_verification.value.isVerifyingTts) return
+    _verification.update { it.copy(isVerifyingTts = true, ttsMessage = null) }
+    viewModelScope.launch {
+      val res = repository.verifyGeminiTtsAccess()
+      _verification.update { state ->
+        res.fold(
+          onSuccess = { msg ->
+            state.copy(isVerifyingTts = false, ttsMessage = msg, ttsIsError = false)
+          },
+          onFailure = { err ->
+            state.copy(
+              isVerifyingTts = false,
+              ttsMessage = err.message ?: "Verification failed.",
+              ttsIsError = true
+            )
+          }
+        )
+      }
+    }
+  }
+
+  fun verifyTextBackend() {
+    if (_verification.value.isVerifyingBackend) return
+    _verification.update { it.copy(isVerifyingBackend = true, backendMessage = null) }
+    viewModelScope.launch {
+      val res = repository.verifyTextBackendAccess()
+      _verification.update { state ->
+        res.fold(
+          onSuccess = { msg ->
+            state.copy(isVerifyingBackend = false, backendMessage = msg, backendIsError = false)
+          },
+          onFailure = { err ->
+            state.copy(
+              isVerifyingBackend = false,
+              backendMessage = err.message ?: "Model verification failed.",
+              backendIsError = true
+            )
+          }
+        )
+      }
+    }
+  }
+
+  fun playOrGenerateDigestPodcast(digest: DigestEntry, forceRegenerate: Boolean = false) {
+    val pb = playbackController.state.value
+    if (!forceRegenerate && pb.isActive && pb.activeDigestId == digest.id) {
+      playbackController.togglePlayPause()
+      return
+    }
+    repository.generatePodcastForDigest(
+      digestId = digest.id,
+      forceRegenerate = forceRegenerate,
+      autoPlayWhenReady = true
+    )
+  }
+
+  fun generateDigestPodcastInBackground(digest: DigestEntry) {
+    repository.generatePodcastForDigest(
+      digestId = digest.id,
+      forceRegenerate = true,
+      autoPlayWhenReady = false
+    )
+  }
+
+  fun playOrGenerateWebsitePodcast(website: SavedWebsite, forceRegenerate: Boolean = false) {
+    val pb = playbackController.state.value
+    if (!forceRegenerate && pb.isActive && pb.activeWebsiteId == website.id) {
+      playbackController.togglePlayPause()
+      return
+    }
+    _expandedIds.value = _expandedIds.value + website.id
+    repository.generateOrPlayWebsitePodcast(
+      websiteId = website.id,
+      forceRegenerate = forceRegenerate,
+      autoPlayWhenReady = true
+    )
+  }
+
+  fun togglePodcastPlayPause() {
+    playbackController.togglePlayPause()
+  }
+
+  fun seekPodcastTo(positionMs: Long) {
+    playbackController.seekTo(positionMs)
+  }
+
+  fun skipPodcastBy(deltaMs: Long) {
+    playbackController.skipBy(deltaMs)
+  }
+
+  fun stopPodcastPlayback() {
+    playbackController.stop()
+  }
+
+  fun openActivePodcastDetails() {
+    val pb = playbackController.state.value
+    val digestId = pb.activeDigestId
+    if (digestId != null) {
+      val digest = repository.digests.value.firstOrNull { it.id == digestId }
+      if (digest != null) {
+        _activeDigestSheet.value = digest
+      }
+    } else if (pb.activeWebsiteId != null) {
+      _expandedIds.value = _expandedIds.value + pb.activeWebsiteId
+    }
+  }
+
+  private data class Sextet<A, B, C, D, E, F>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D,
+    val fifth: E,
+    val sixth: F
+  )
 }
