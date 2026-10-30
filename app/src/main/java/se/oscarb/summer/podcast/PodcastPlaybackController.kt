@@ -10,6 +10,7 @@ import android.media.MediaPlayer
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.PowerManager
+import android.util.Log
 import android.view.KeyEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.FileInputStream
 
 data class PodcastPlaybackState(
   val isActive: Boolean = false,
@@ -35,9 +37,13 @@ data class PodcastPlaybackState(
   val audioFilePath: String? = null,
   val positionMs: Long = 0L,
   val durationMs: Long = 0L,
+  val playbackError: String? = null,
   val isGeneratingInBackground: Boolean = false,
   val generationTitle: String? = null,
-  val generationStatusText: String? = null
+  val generationStatusText: String? = null,
+  val isQuietWindowWaiting: Boolean = false,
+  val quietWindowDeadlineMs: Long = 0L,
+  val quietWindowLinkCount: Int = 0
 )
 
 private data class ActiveGenerationInfo(
@@ -47,7 +53,7 @@ private data class ActiveGenerationInfo(
 
 /**
  * Manages podcast audio playback, MediaSession integration (lock screen, notification shade,
- * and Bluetooth headphone controls), audio focus, and keyed background generation status.
+ * and Bluetooth headphone controls), audio focus, and keyed background generation / quiet-window status.
  */
 class PodcastPlaybackController private constructor(private val appContext: Context) {
 
@@ -131,11 +137,15 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
         }
         return super.onMediaButtonEvent(mediaButtonIntent)
       }
-    })
+    }, android.os.Handler(android.os.Looper.getMainLooper()))
   }
 
   val sessionToken: MediaSession.Token
     get() = mediaSession.sessionToken
+
+  fun clearPlaybackError() {
+    _state.update { it.copy(playbackError = null) }
+  }
 
   fun playEpisode(
     audioFile: File,
@@ -145,7 +155,13 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
     websiteId: String? = null,
     forceReload: Boolean = false
   ) {
-    if (!audioFile.exists()) return
+    if (!audioFile.exists() || audioFile.length() <= 44L) {
+      Log.e(TAG, "Cannot play episode: file missing or empty at ${audioFile.absolutePath}")
+      _state.update {
+        it.copy(playbackError = "Podcast audio file is missing or incomplete. Tap Regenerate.")
+      }
+      return
+    }
     val fileMtime = audioFile.lastModified()
 
     // If the exact same unmodified file is already prepared, just resume (with EOF rewind support)
@@ -163,7 +179,7 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
     }
 
     // Update state synchronously first so foreground-service promotion in onStartCommand sees
-    // isActive == true immediately while MediaPlayer prepares asynchronously off the UI thread.
+    // isActive == true immediately while MediaPlayer prepares asynchronously.
     _state.update {
       it.copy(
         isActive = true,
@@ -174,7 +190,8 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
         subtitle = subtitle,
         audioFilePath = audioFile.absolutePath,
         positionMs = 0L,
-        durationMs = 0L
+        durationMs = 0L,
+        playbackError = null
       )
     }
 
@@ -186,14 +203,19 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
 
       try {
         val player = MediaPlayer().apply {
-          setWakeMode(appContext, PowerManager.PARTIAL_WAKE_LOCK)
+          runCatching { setWakeMode(appContext, PowerManager.PARTIAL_WAKE_LOCK) }
           setAudioAttributes(
             AudioAttributes.Builder()
               .setUsage(AudioAttributes.USAGE_MEDIA)
               .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
               .build()
           )
-          setDataSource(audioFile.absolutePath)
+          // IMPORTANT: Open FileInputStream in our app process and pass its FileDescriptor!
+          // Passing a raw 0600 internal filesDir path string fails in Android's system mediaserver
+          // process due to DAC/SELinux isolation on private app directories.
+          FileInputStream(audioFile).use { fis ->
+            setDataSource(fis.fd)
+          }
           setOnPreparedListener { mp ->
             if (token != activePlayToken) {
               runCatching { mp.release() }
@@ -204,9 +226,11 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
             val duration = runCatching { mp.duration.toLong() }.getOrDefault(0L).coerceAtLeast(0L)
             val shouldStart = _state.value.isPlaying
             if (shouldStart) {
-              runCatching { mp.start() }
+              runCatching { mp.start() }.onFailure { err ->
+                Log.e(TAG, "MediaPlayer.start() failed", err)
+              }
             }
-            _state.update { it.copy(durationMs = duration, positionMs = 0L) }
+            _state.update { it.copy(durationMs = duration, positionMs = 0L, playbackError = null) }
             mediaSession.isActive = true
             updateMediaSessionMetadata(title, subtitle, duration)
             updateMediaSessionPlaybackState(isPlaying = shouldStart, positionMs = 0L)
@@ -220,9 +244,20 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
               onPlaybackCompleted()
             }
           }
-          setOnErrorListener { _, _, _ ->
+          setOnErrorListener { _, what, extra ->
+            Log.e(TAG, "MediaPlayer error what=$what extra=$extra for ${audioFile.absolutePath}")
             if (token == activePlayToken) {
-              stop()
+              releasePlayerOnly()
+              abandonAudioFocus()
+              mediaSession.isActive = false
+              _state.update {
+                it.copy(
+                  isActive = false,
+                  isPlaying = false,
+                  playbackError = "Unable to play podcast audio (media error $what/$extra)."
+                )
+              }
+              PodcastForegroundService.startOrUpdate(appContext)
             }
             true
           }
@@ -236,9 +271,16 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
         player.prepareAsync()
       } catch (ce: CancellationException) {
         throw ce
-      } catch (_: Exception) {
+      } catch (e: Exception) {
+        Log.e(TAG, "Failed to initialize MediaPlayer for ${audioFile.absolutePath}", e)
         releasePlayerOnly()
-        _state.update { it.copy(isActive = false, isPlaying = false) }
+        _state.update {
+          it.copy(
+            isActive = false,
+            isPlaying = false,
+            playbackError = "Failed to start audio playback: ${e.message ?: "Unknown error"}"
+          )
+        }
         PodcastForegroundService.startOrUpdate(appContext)
       }
     }
@@ -318,7 +360,7 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
     } else {
       runCatching { player.currentPosition.toLong() }.getOrDefault(currentPos)
     }
-    _state.update { it.copy(isPlaying = true, positionMs = pos) }
+    _state.update { it.copy(isPlaying = true, positionMs = pos, playbackError = null) }
     mediaSession.isActive = true
     updateMediaSessionPlaybackState(isPlaying = true, positionMs = pos)
     startProgressTicker()
@@ -358,6 +400,9 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
         isPlaying = false,
         activeDigestId = null,
         activeWebsiteId = null,
+        title = "",
+        subtitle = "",
+        audioFilePath = null,
         positionMs = 0L,
         durationMs = 0L
       )
@@ -366,16 +411,13 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
     PodcastForegroundService.startOrUpdate(appContext)
   }
 
-  fun setGenerationProgress(
-    jobKey: String,
-    title: String,
-    statusText: String
-  ) {
+  fun setGenerationProgress(jobKey: String, title: String, statusText: String) {
     val (displayTitle, displayStatus) = synchronized(generationsLock) {
       activeGenerations[jobKey] = ActiveGenerationInfo(title = title, statusText = statusText)
+      val latest = activeGenerations.values.last()
       val count = activeGenerations.size
-      val formattedTitle = if (count > 1) "$title (+${count - 1} more)" else title
-      formattedTitle to statusText
+      val formattedTitle = if (count > 1) "${latest.title} (+${count - 1} more)" else latest.title
+      formattedTitle to latest.statusText
     }
     _state.update {
       it.copy(
@@ -404,6 +446,21 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
         isGeneratingInBackground = remainingSnapshot.first,
         generationTitle = remainingSnapshot.second,
         generationStatusText = remainingSnapshot.third
+      )
+    }
+    PodcastForegroundService.startOrUpdate(appContext)
+  }
+
+  fun setQuietWindowCountdown(
+    isWaiting: Boolean,
+    deadlineMs: Long = 0L,
+    linkCount: Int = 0
+  ) {
+    _state.update {
+      it.copy(
+        isQuietWindowWaiting = isWaiting,
+        quietWindowDeadlineMs = if (isWaiting) deadlineMs else 0L,
+        quietWindowLinkCount = if (isWaiting) linkCount else 0
       )
     }
     PodcastForegroundService.startOrUpdate(appContext)
@@ -518,6 +575,8 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
   }
 
   companion object {
+    private const val TAG = "PodcastPlaybackCtrl"
+
     @Volatile
     private var instance: PodcastPlaybackController? = null
 

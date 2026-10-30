@@ -47,6 +47,7 @@
         <!-- Main App UI -->
         <activity
             android:name=".MainActivity"
+            android:launchMode="singleTop"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -55,12 +56,12 @@
             </intent-filter>
         </activity>
 
-        <!-- Invisible Browser & Share Target Trampoline Activity -->
+        <!-- Translucent Browser & Share Target Trampoline Activity -->
         <activity
             android:name=".SaveLinkTrampolineActivity"
             android:exported="true"
             android:label="@string/trampoline_label"
-            android:theme="@android:style/Theme.NoDisplay"
+            android:theme="@style/Theme.Summer.TranslucentOverlay"
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:taskAffinity="">
