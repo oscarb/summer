@@ -145,7 +145,8 @@ class PodcastTtsService(private val appContext: Context) {
       // 1. Query /v1beta/models to list TTS models enabled on this key
       val availableTtsModels = runCatching {
         val listReq = Request.Builder()
-          .url("https://generativelanguage.googleapis.com/v1beta/models?key=$apiKey")
+          .url("https://generativelanguage.googleapis.com/v1beta/models")
+          .header("x-goog-api-key", apiKey)
           .get()
           .build()
         httpClient.newCall(listReq).execute().use { resp ->
@@ -230,10 +231,9 @@ class PodcastTtsService(private val appContext: Context) {
         channels = 1,
         bitsPerSample = 16
       )
-      outputWavFile.writeBytes(wavBytes)
+      WavAudioUtils.writeBytesAtomically(outputWavFile, wavBytes)
     } else {
-      val pcmChunks = mutableListOf<ByteArray>()
-      var detectedSampleRate = 24_000
+      val segments = mutableListOf<WavAudioUtils.WavFormatData>()
       batches.forEachIndexed { batchIndex, batchTurns ->
         onProgress("Gemini Multi-Speaker TTS ($model): Synthesizing dialogue scene ${batchIndex + 1}/${batches.size}...")
         val (rawBytes, sampleRate) = requestGeminiMultiSpeakerBatch(
@@ -245,22 +245,23 @@ class PodcastTtsService(private val appContext: Context) {
           voiceA = voiceA,
           voiceB = voiceB
         )
-        detectedSampleRate = sampleRate
-        val parsedPcm = if (WavAudioUtils.isRiffWave(rawBytes)) {
-          WavAudioUtils.parseWav(rawBytes).pcmBytes
+        val segment = if (WavAudioUtils.isRiffWave(rawBytes)) {
+          WavAudioUtils.parseWav(rawBytes)
         } else {
-          rawBytes
+          WavAudioUtils.WavFormatData(
+            sampleRate = sampleRate,
+            channels = 1,
+            bitsPerSample = 16,
+            pcmBytes = rawBytes
+          )
         }
-        if (parsedPcm.isNotEmpty()) {
-          pcmChunks.add(parsedPcm)
+        if (segment.pcmBytes.isNotEmpty()) {
+          segments.add(segment)
         }
       }
-      WavAudioUtils.stitchPcmChunksToWavFile(
-        pcmChunks = pcmChunks,
+      WavAudioUtils.stitchFormatSegmentsToWavFile(
+        segments = segments,
         outputFile = outputWavFile,
-        sampleRate = detectedSampleRate,
-        channels = 1,
-        bitsPerSample = 16,
         pauseMs = 240
       )
     }
@@ -356,7 +357,7 @@ class PodcastTtsService(private val appContext: Context) {
     usePerPartSpeechMetadata: Boolean
   ): Pair<ByteArray, Int> {
     val endpoint =
-      "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+      "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
 
     val requestPayload = buildJsonObject {
       put("contents", buildJsonArray {
@@ -420,6 +421,7 @@ class PodcastTtsService(private val appContext: Context) {
 
     val request = Request.Builder()
       .url(endpoint)
+      .header("x-goog-api-key", apiKey)
       .post(requestPayload.toRequestBody("application/json; charset=utf-8".toMediaType()))
       .build()
 
@@ -485,7 +487,7 @@ class PodcastTtsService(private val appContext: Context) {
       val bytes = response.body?.bytes()
         ?: throw IllegalStateException("Empty audio response from Azure Speech.")
       val wavBytes = WavAudioUtils.ensureWavHeader(bytes, sampleRate = 24_000)
-      outputWavFile.writeBytes(wavBytes)
+      WavAudioUtils.writeBytesAtomically(outputWavFile, wavBytes)
       return PodcastAudioResult(
         audioFile = outputWavFile,
         providerUsed = "Azure Neural TTS ($voiceA & $voiceB)",

@@ -229,7 +229,8 @@ class AiSummaryService(private val appContext: Context) {
     if (apiKey.isBlank()) return emptyList()
     return runCatching {
       val req = Request.Builder()
-        .url("https://generativelanguage.googleapis.com/v1beta/models?key=$apiKey")
+        .url("https://generativelanguage.googleapis.com/v1beta/models")
+        .header("x-goog-api-key", apiKey)
         .get()
         .build()
       httpClient.newCall(req).execute().use { resp ->
@@ -296,7 +297,7 @@ class AiSummaryService(private val appContext: Context) {
     } catch (ce: CancellationException) {
       throw ce
     } catch (e: Exception) {
-      if (allowCapacityFallback && cleanModel != "gemini-3.5-flash") {
+      if (allowCapacityFallback && isTransientCapacityOrRateLimitError(e) && cleanModel != "gemini-3.5-flash") {
         val fallbackModel = Firebase.ai.generativeModel(modelName = "gemini-3.5-flash")
         val response = fallbackModel.generateContent(prompt)
         response.text ?: throw e
@@ -318,10 +319,7 @@ class AiSummaryService(private val appContext: Context) {
     return try {
       executeDirectGeminiHttpCall(prompt = prompt, apiKey = apiKey, model = model)
     } catch (e: Exception) {
-      val isHighDemandOrTimeout = e is java.net.SocketTimeoutException ||
-        e.message?.contains("HTTP 503") == true ||
-        e.message?.contains("HTTP 429") == true
-      if (allowCapacityFallback && isHighDemandOrTimeout && model != "gemini-3.5-flash") {
+      if (allowCapacityFallback && isTransientCapacityOrRateLimitError(e) && model != "gemini-3.5-flash") {
         executeDirectGeminiHttpCall(prompt = prompt, apiKey = apiKey, model = "gemini-3.5-flash")
       } else {
         throw e
@@ -329,9 +327,24 @@ class AiSummaryService(private val appContext: Context) {
     }
   }
 
+  private fun isTransientCapacityOrRateLimitError(e: Throwable): Boolean {
+    if (e is java.net.SocketTimeoutException || e.cause is java.net.SocketTimeoutException) {
+      return true
+    }
+    val combined = "${e.message.orEmpty()} ${e.cause?.message.orEmpty()}".lowercase()
+    return combined.contains("503") ||
+      combined.contains("429") ||
+      combined.contains("unavailable") ||
+      combined.contains("resource_exhausted") ||
+      combined.contains("deadline_exceeded") ||
+      combined.contains("high demand") ||
+      combined.contains("overloaded") ||
+      combined.contains("timed out")
+  }
+
   private fun executeDirectGeminiHttpCall(prompt: String, apiKey: String, model: String): String {
     val endpoint =
-      "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+      "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
 
     val requestPayload = buildJsonObject {
       put("contents", buildJsonArray {
@@ -347,6 +360,7 @@ class AiSummaryService(private val appContext: Context) {
 
     val request = Request.Builder()
       .url(endpoint)
+      .header("x-goog-api-key", apiKey)
       .post(requestPayload.toRequestBody("application/json; charset=utf-8".toMediaType()))
       .build()
 
