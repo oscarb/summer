@@ -30,7 +30,7 @@ Whenever you come across interesting articles in other apps (such as **Google Fe
   - **Multi-Engine Voice Synthesis**: Choose between **Google Gemini Multi-Speaker TTS** (`gemini-3.8-flash-tts` / `gemini-3.8-flash-lite-tts` / `gemini-2.5-flash-preview-tts` on the free Google AI Studio tier, with dropdown selectors for all 30 official Gemini studio voices), **Android On-Device Multi-Voice TTS** (100% free & offline with engine/voice/rate/pitch selectors, sentence-boundary sub-chunking, and automatic fallback), **Microsoft Azure AI Speech** (500k free neural characters/month via multi-voice SSML), **ElevenLabs Neural TTS**, or **OpenAI / Kokoro / Custom `/v1/audio/speech`**.
   - **Background Generation & Screen-Off Playback**: Generates and plays episodes in a foreground service with lock-screen & headphone `MediaSession` controls (`Play/Pause`, `±15s` skip, seek bar), a persistent in-app mini-player bar, and offline WAV caching on disk.
 - **Loop-Free External Browser Launching (`ExternalBrowserLauncher`)**
-  - Because Summer registers as a browser itself, tapping **Open in Browser** queries `PackageManager` for other installed browsers (excluding `se.oscarb.summer`) and opens the article via **Chrome Custom Tabs**.
+  - Because Summer registers as a browser itself, tapping **Open in Browser** queries `PackageManager` for other installed browsers (excluding `se.oscarb.summer`) and opens the article directly in your standalone external browser app by default (with an optional **Chrome Custom Tabs** overlay toggle in **Settings**).
 
 ---
 

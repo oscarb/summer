@@ -43,7 +43,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.History
@@ -54,7 +55,6 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Unarchive
@@ -103,10 +103,10 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -123,7 +123,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
 import coil.compose.AsyncImage
-import kotlinx.coroutines.launch
 import se.oscarb.summer.data.AiBackend
 import se.oscarb.summer.data.AppSettings
 import se.oscarb.summer.data.DigestEntry
@@ -132,7 +131,6 @@ import se.oscarb.summer.data.LinkFilter
 import se.oscarb.summer.data.OnDeviceTtsCatalog
 import se.oscarb.summer.data.PodcastTtsProvider
 import se.oscarb.summer.data.SavedWebsite
-import se.oscarb.summer.data.SummerRepository
 import se.oscarb.summer.data.TtsEngineOption
 import se.oscarb.summer.data.TtsVoiceOption
 import se.oscarb.summer.podcast.PodcastPlaybackState
@@ -328,7 +326,10 @@ fun MainScreen(
         )
         2 -> SettingsTab(
           settings = state.settings,
-          onUpdateSettings = viewModel::updateSettings
+          verification = state.verification,
+          onUpdateSettings = viewModel::updateSettings,
+          onVerifyGeminiTts = viewModel::verifyGeminiTts,
+          onVerifyTextBackend = viewModel::verifyTextBackend
         )
       }
     }
@@ -429,6 +430,9 @@ private fun PodcastMiniPlayerBar(
           }
         }
       } else if (playback.isActive) {
+        var scrubPositionMs by remember(playback.audioFilePath) { mutableStateOf<Float?>(null) }
+        val displayedPositionMs = scrubPositionMs?.toLong() ?: playback.positionMs
+
         Row(
           modifier = Modifier
             .fillMaxWidth()
@@ -463,7 +467,7 @@ private fun PodcastMiniPlayerBar(
             )
             Text(
               text = buildString {
-                append(formatDurationMs(playback.positionMs))
+                append(formatDurationMs(displayedPositionMs))
                 if (playback.durationMs > 0L) {
                   append(" / ")
                   append(formatDurationMs(playback.durationMs))
@@ -482,7 +486,7 @@ private fun PodcastMiniPlayerBar(
 
           IconButton(onClick = onSkipBack15, modifier = Modifier.size(36.dp)) {
             Icon(
-              imageVector = Icons.Default.Replay10,
+              imageVector = Icons.Default.FastRewind,
               contentDescription = "Back 15 seconds",
               modifier = Modifier.size(20.dp)
             )
@@ -495,7 +499,7 @@ private fun PodcastMiniPlayerBar(
           }
           IconButton(onClick = onSkipForward15, modifier = Modifier.size(36.dp)) {
             Icon(
-              imageVector = Icons.Default.Forward10,
+              imageVector = Icons.Default.FastForward,
               contentDescription = "Forward 15 seconds",
               modifier = Modifier.size(20.dp)
             )
@@ -511,8 +515,13 @@ private fun PodcastMiniPlayerBar(
 
         if (playback.durationMs > 0L) {
           Slider(
-            value = playback.positionMs.toFloat().coerceIn(0f, playback.durationMs.toFloat()),
-            onValueChange = { newPos -> onSeekTo(newPos.toLong()) },
+            value = (scrubPositionMs ?: playback.positionMs.toFloat())
+              .coerceIn(0f, playback.durationMs.toFloat()),
+            onValueChange = { newPos -> scrubPositionMs = newPos },
+            onValueChangeFinished = {
+              scrubPositionMs?.let { target -> onSeekTo(target.toLong()) }
+              scrubPositionMs = null
+            },
             valueRange = 0f..playback.durationMs.toFloat(),
             modifier = Modifier
               .fillMaxWidth()
@@ -1611,7 +1620,10 @@ private fun DigestsHistoryTab(
 @Composable
 private fun SettingsTab(
   settings: AppSettings,
-  onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit
+  verification: VerificationUiState,
+  onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit,
+  onVerifyGeminiTts: () -> Unit,
+  onVerifyTextBackend: () -> Unit
 ) {
   val context = LocalContext.current
   val installedBrowsers = remember {
@@ -1621,13 +1633,6 @@ private fun SettingsTab(
   var showOpenAiKey by rememberSaveable { mutableStateOf(false) }
   var showElevenLabsKey by rememberSaveable { mutableStateOf(false) }
   var showAzureKey by rememberSaveable { mutableStateOf(false) }
-  val scope = rememberCoroutineScope()
-  var isVerifyingTts by remember { mutableStateOf(false) }
-  var ttsVerificationMessage by remember { mutableStateOf<String?>(null) }
-  var ttsVerificationIsError by remember { mutableStateOf(false) }
-  var isVerifyingBackend by remember { mutableStateOf(false) }
-  var backendVerificationMessage by remember { mutableStateOf<String?>(null) }
-  var backendVerificationIsError by remember { mutableStateOf(false) }
 
   Column(
     modifier = Modifier
@@ -1933,27 +1938,10 @@ private fun SettingsTab(
               horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
               FilledTonalButton(
-                enabled = !isVerifyingTts,
-                onClick = {
-                  isVerifyingTts = true
-                  ttsVerificationMessage = null
-                  scope.launch {
-                    val res = SummerRepository.getInstance(context).verifyGeminiTtsAccess()
-                    res.fold(
-                      onSuccess = { msg ->
-                        ttsVerificationIsError = false
-                        ttsVerificationMessage = msg
-                      },
-                      onFailure = { err ->
-                        ttsVerificationIsError = true
-                        ttsVerificationMessage = err.message ?: "Verification failed."
-                      }
-                    )
-                    isVerifyingTts = false
-                  }
-                }
+                enabled = !verification.isVerifyingTts,
+                onClick = onVerifyGeminiTts
               ) {
-                if (isVerifyingTts) {
+                if (verification.isVerifyingTts) {
                   CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                   Spacer(Modifier.width(8.dp))
                   Text("Testing 2-Speaker TTS...")
@@ -1964,9 +1952,9 @@ private fun SettingsTab(
                 }
               }
             }
-            ttsVerificationMessage?.let { msg ->
+            verification.ttsMessage?.let { msg ->
               Spacer(modifier = Modifier.height(8.dp))
-              VerificationStatusBox(message = msg, isError = ttsVerificationIsError)
+              VerificationStatusBox(message = msg, isError = verification.ttsIsError)
             }
           }
 
@@ -2270,7 +2258,7 @@ private fun SettingsTab(
                 onUpdateSettings { it.copy(firebaseModel = value) }
               },
               label = { Text("Gemini Model ID (or enter custom)") },
-              SupportingText = { Text("Recommended: gemini-3.8-flash") },
+              supportingText = { Text("Recommended: gemini-3.8-flash") },
               singleLine = true,
               modifier = Modifier.fillMaxWidth()
             )
@@ -2402,27 +2390,10 @@ private fun SettingsTab(
 
         Spacer(modifier = Modifier.height(10.dp))
         FilledTonalButton(
-          enabled = !isVerifyingBackend,
-          onClick = {
-            isVerifyingBackend = true
-            backendVerificationMessage = null
-            scope.launch {
-              val res = SummerRepository.getInstance(context).verifyTextBackendAccess()
-              res.fold(
-                onSuccess = { msg ->
-                  backendVerificationIsError = false
-                  backendVerificationMessage = msg
-                },
-                onFailure = { err ->
-                  backendVerificationIsError = true
-                  backendVerificationMessage = err.message ?: "Model verification failed."
-                }
-              )
-              isVerifyingBackend = false
-            }
-          }
+          enabled = !verification.isVerifyingBackend,
+          onClick = onVerifyTextBackend
         ) {
-          if (isVerifyingBackend) {
+          if (verification.isVerifyingBackend) {
             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             Spacer(Modifier.width(8.dp))
             Text("Testing Model...")
@@ -2432,9 +2403,9 @@ private fun SettingsTab(
             Text("Verify Summarization Model")
           }
         }
-        backendVerificationMessage?.let { msg ->
+        verification.backendMessage?.let { msg ->
           Spacer(modifier = Modifier.height(8.dp))
-          VerificationStatusBox(message = msg, isError = backendVerificationIsError)
+          VerificationStatusBox(message = msg, isError = verification.backendIsError)
         }
       }
     }
@@ -2566,25 +2537,6 @@ private fun SettingsTab(
       }
     }
   }
-}
-
-@Composable
-private fun OutlinedTextField(
-  value: String,
-  onValueChange: (String) -> Unit,
-  label: @Composable () -> Unit,
-  SupportingText: @Composable () -> Unit,
-  singleLine: Boolean,
-  modifier: Modifier = Modifier
-) {
-  androidx.compose.material3.OutlinedTextField(
-    value = value,
-    onValueChange = onValueChange,
-    label = label,
-    supportingText = SupportingText,
-    singleLine = singleLine,
-    modifier = modifier
-  )
 }
 
 @Composable
@@ -2826,19 +2778,28 @@ private fun AndroidOnDeviceTtsSettingsSection(
 
   Spacer(modifier = Modifier.height(10.dp))
 
+  var draftRate by remember(settings.androidSpeechRate) {
+    mutableFloatStateOf(settings.androidSpeechRate)
+  }
+  var draftPitch by remember(settings.androidSpeechPitch) {
+    mutableFloatStateOf(settings.androidSpeechPitch)
+  }
+
   Row(
     modifier = Modifier.fillMaxWidth(),
     horizontalArrangement = Arrangement.SpaceBetween,
     verticalAlignment = Alignment.CenterVertically
   ) {
     Text(
-      text = "Speech Rate: ${"%.2f".format(settings.androidSpeechRate)}x",
+      text = "Speech Rate: ${"%.2f".format(draftRate)}x",
       style = MaterialTheme.typography.bodySmall,
       fontWeight = FontWeight.Medium
     )
-    if (settings.androidSpeechRate != 1.0f || settings.androidSpeechPitch != 1.0f) {
+    if (draftRate != 1.0f || draftPitch != 1.0f) {
       TextButton(
         onClick = {
+          draftRate = 1.0f
+          draftPitch = 1.0f
           onUpdateSettings { it.copy(androidSpeechRate = 1.0f, androidSpeechPitch = 1.0f) }
         }
       ) {
@@ -2847,23 +2808,25 @@ private fun AndroidOnDeviceTtsSettingsSection(
     }
   }
   Slider(
-    value = settings.androidSpeechRate,
-    onValueChange = { rate ->
-      onUpdateSettings { it.copy(androidSpeechRate = rate) }
+    value = draftRate,
+    onValueChange = { rate -> draftRate = rate },
+    onValueChangeFinished = {
+      onUpdateSettings { it.copy(androidSpeechRate = draftRate) }
     },
     valueRange = 0.5f..2.0f,
     steps = 14
   )
 
   Text(
-    text = "Base Pitch: ${"%.2f".format(settings.androidSpeechPitch)}x",
+    text = "Base Pitch: ${"%.2f".format(draftPitch)}x",
     style = MaterialTheme.typography.bodySmall,
     fontWeight = FontWeight.Medium
   )
   Slider(
-    value = settings.androidSpeechPitch,
-    onValueChange = { pitch ->
-      onUpdateSettings { it.copy(androidSpeechPitch = pitch) }
+    value = draftPitch,
+    onValueChange = { pitch -> draftPitch = pitch },
+    onValueChangeFinished = {
+      onUpdateSettings { it.copy(androidSpeechPitch = draftPitch) }
     },
     valueRange = 0.5f..2.0f,
     steps = 14

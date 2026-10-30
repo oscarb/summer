@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import se.oscarb.summer.data.AppSettings
 import se.oscarb.summer.data.DigestEntry
@@ -16,6 +17,15 @@ import se.oscarb.summer.data.SavedWebsite
 import se.oscarb.summer.data.SummerRepository
 import se.oscarb.summer.podcast.PodcastPlaybackController
 import se.oscarb.summer.podcast.PodcastPlaybackState
+
+data class VerificationUiState(
+  val isVerifyingTts: Boolean = false,
+  val ttsMessage: String? = null,
+  val ttsIsError: Boolean = false,
+  val isVerifyingBackend: Boolean = false,
+  val backendMessage: String? = null,
+  val backendIsError: Boolean = false
+)
 
 data class SummerUiState(
   val websites: List<SavedWebsite> = emptyList(),
@@ -28,7 +38,8 @@ data class SummerUiState(
   val isGeneratingDigest: Boolean = false,
   val digestError: String? = null,
   val settings: AppSettings = AppSettings(),
-  val podcastPlayback: PodcastPlaybackState = PodcastPlaybackState()
+  val podcastPlayback: PodcastPlaybackState = PodcastPlaybackState(),
+  val verification: VerificationUiState = VerificationUiState()
 )
 
 class MainScreenViewModel(application: Application) : AndroidViewModel(application) {
@@ -40,6 +51,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
   private val _expandedIds = MutableStateFlow<Set<String>>(emptySet())
   private val _activeDigestSheet = MutableStateFlow<DigestEntry?>(null)
   private val _digestError = MutableStateFlow<String?>(null)
+  private val _verification = MutableStateFlow(VerificationUiState())
 
   val uiState: StateFlow<SummerUiState> = combine(
     repository.websites,
@@ -51,11 +63,11 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
       _expandedIds,
       _activeDigestSheet,
       _digestError,
-      playbackController.state
-    ) { filter, expanded, sheet, err, playback ->
-      Quint(filter, expanded, sheet, err, playback)
+      combine(playbackController.state, _verification) { pb, ver -> pb to ver }
+    ) { filter, expanded, sheet, err, (playback, verification) ->
+      Sextet(filter, expanded, sheet, err, playback, verification)
     }
-  ) { websites, digests, settings, isGeneratingDigest, (filter, expanded, sheet, err, playback) ->
+  ) { websites, digests, settings, isGeneratingDigest, (filter, expanded, sheet, err, playback, verification) ->
     val filtered = when (filter) {
       LinkFilter.UNREAD -> websites.filter { !it.isArchived }
       LinkFilter.ALL -> websites
@@ -75,7 +87,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
       isGeneratingDigest = isGeneratingDigest,
       digestError = err,
       settings = settings,
-      podcastPlayback = playback
+      podcastPlayback = playback,
+      verification = verification
     )
   }.stateIn(
     scope = viewModelScope,
@@ -162,6 +175,50 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     repository.updateSettings(transform)
   }
 
+  fun verifyGeminiTts() {
+    if (_verification.value.isVerifyingTts) return
+    _verification.update { it.copy(isVerifyingTts = true, ttsMessage = null) }
+    viewModelScope.launch {
+      val res = repository.verifyGeminiTtsAccess()
+      _verification.update { state ->
+        res.fold(
+          onSuccess = { msg ->
+            state.copy(isVerifyingTts = false, ttsMessage = msg, ttsIsError = false)
+          },
+          onFailure = { err ->
+            state.copy(
+              isVerifyingTts = false,
+              ttsMessage = err.message ?: "Verification failed.",
+              ttsIsError = true
+            )
+          }
+        )
+      }
+    }
+  }
+
+  fun verifyTextBackend() {
+    if (_verification.value.isVerifyingBackend) return
+    _verification.update { it.copy(isVerifyingBackend = true, backendMessage = null) }
+    viewModelScope.launch {
+      val res = repository.verifyTextBackendAccess()
+      _verification.update { state ->
+        res.fold(
+          onSuccess = { msg ->
+            state.copy(isVerifyingBackend = false, backendMessage = msg, backendIsError = false)
+          },
+          onFailure = { err ->
+            state.copy(
+              isVerifyingBackend = false,
+              backendMessage = err.message ?: "Model verification failed.",
+              backendIsError = true
+            )
+          }
+        )
+      }
+    }
+  }
+
   fun playOrGenerateDigestPodcast(digest: DigestEntry, forceRegenerate: Boolean = false) {
     val pb = playbackController.state.value
     if (!forceRegenerate && pb.isActive && pb.activeDigestId == digest.id) {
@@ -226,11 +283,12 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
   }
 
-  private data class Quint<A, B, C, D, E>(
+  private data class Sextet<A, B, C, D, E, F>(
     val first: A,
     val second: B,
     val third: C,
     val fourth: D,
-    val fifth: E
+    val fifth: E,
+    val sixth: F
   )
 }
