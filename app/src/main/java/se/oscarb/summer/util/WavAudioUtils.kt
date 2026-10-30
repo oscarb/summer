@@ -4,6 +4,9 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.UUID
 
 /**
  * Utilities for wrapping raw Linear PCM (L16) audio into standard RIFF WAVE (.wav) files
@@ -177,13 +180,40 @@ object WavAudioUtils {
       channels = channels,
       bitsPerSample = bitsPerSample
     )
-    outputFile.parentFile?.mkdirs()
-    outputFile.writeBytes(wavBytes)
+    writeBytesAtomically(outputFile, wavBytes)
+  }
+
+  /**
+   * Normalizes and stitches multiple [WavFormatData] segments (handling mixed sample rates or
+   * stereo/mono channel counts across distinct voices) into a single 16-bit mono RIFF WAVE file.
+   */
+  fun stitchFormatSegmentsToWavFile(
+    segments: List<WavFormatData>,
+    outputFile: File,
+    pauseMs: Int = 260
+  ) {
+    val nonEmpty = segments.filter { it.pcmBytes.isNotEmpty() }
+    if (nonEmpty.isEmpty()) {
+      throw IllegalStateException("No synthesized audio segments were generated.")
+    }
+
+    val targetSampleRate = nonEmpty.maxOf { it.sampleRate }.coerceIn(8_000, 48_000)
+    val normalizedChunks = nonEmpty.map { normalizeToMono16Pcm(it, targetSampleRate) }
+
+    stitchPcmChunksToWavFile(
+      pcmChunks = normalizedChunks,
+      outputFile = outputFile,
+      sampleRate = targetSampleRate,
+      channels = 1,
+      bitsPerSample = 16,
+      pauseMs = pauseMs
+    )
   }
 
   /**
    * Stitches multiple WAV files (such as per-turn outputs from Android TextToSpeech.synthesizeToFile
-   * or cloud TTS endpoints) into a single playable WAV file at [outputFile].
+   * or cloud TTS endpoints) into a single playable WAV file at [outputFile], automatically
+   * normalizing any mixed sample rates or channel counts.
    */
   fun stitchWavFiles(
     inputWavFiles: List<File>,
@@ -196,16 +226,115 @@ object WavAudioUtils {
     }
 
     val parsedSegments = validFiles.map { parseWav(it.readBytes()) }
-    val primary = parsedSegments.first()
-
-    stitchPcmChunksToWavFile(
-      pcmChunks = parsedSegments.map { it.pcmBytes },
+    stitchFormatSegmentsToWavFile(
+      segments = parsedSegments,
       outputFile = outputFile,
-      sampleRate = primary.sampleRate,
-      channels = primary.channels,
-      bitsPerSample = primary.bitsPerSample,
       pauseMs = pauseMs
     )
+  }
+
+  /**
+   * Converts a [WavFormatData] segment to 16-bit signed little-endian mono PCM at [targetSampleRate].
+   * Fast-paths with zero copying when the segment already matches.
+   */
+  fun normalizeToMono16Pcm(segment: WavFormatData, targetSampleRate: Int): ByteArray {
+    if (segment.channels == 1 && segment.bitsPerSample == 16 && segment.sampleRate == targetSampleRate) {
+      return segment.pcmBytes
+    }
+    if (segment.pcmBytes.isEmpty()) return ByteArray(0)
+
+    val ch = segment.channels.coerceAtLeast(1)
+    val monoSamples: ShortArray = when (segment.bitsPerSample) {
+      8 -> {
+        val frameCount = segment.pcmBytes.size / ch
+        ShortArray(frameCount) { frameIdx ->
+          var sum = 0
+          val base = frameIdx * ch
+          for (c in 0 until ch) {
+            val unsigned = segment.pcmBytes[base + c].toInt() and 0xFF
+            sum += (unsigned - 128) shl 8
+          }
+          (sum / ch).coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+        }
+      }
+      else -> {
+        // Default 16-bit signed little-endian
+        val frameSize = ch * 2
+        val frameCount = segment.pcmBytes.size / frameSize
+        val srcBuf = ByteBuffer.wrap(segment.pcmBytes).order(ByteOrder.LITTLE_ENDIAN)
+        ShortArray(frameCount) { frameIdx ->
+          var sum = 0
+          val base = frameIdx * frameSize
+          for (c in 0 until ch) {
+            sum += srcBuf.getShort(base + c * 2).toInt()
+          }
+          (sum / ch).coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+        }
+      }
+    }
+
+    if (monoSamples.isEmpty()) return ByteArray(0)
+
+    val srcRate = segment.sampleRate.coerceAtLeast(1)
+    val dstRate = targetSampleRate.coerceAtLeast(1)
+    val finalSamples = if (srcRate == dstRate) {
+      monoSamples
+    } else {
+      val dstLength = ((monoSamples.size.toLong() * dstRate) / srcRate).toInt().coerceAtLeast(1)
+      val resampled = ShortArray(dstLength)
+      val ratio = srcRate.toDouble() / dstRate.toDouble()
+      val lastIdx = monoSamples.lastIndex
+      for (i in 0 until dstLength) {
+        val srcPos = i * ratio
+        val idx0 = srcPos.toInt().coerceIn(0, lastIdx)
+        val idx1 = (idx0 + 1).coerceAtMost(lastIdx)
+        val frac = srcPos - idx0
+        val s0 = monoSamples[idx0].toInt()
+        val s1 = monoSamples[idx1].toInt()
+        val interp = (s0 + (s1 - s0) * frac).toInt()
+          .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+        resampled[i] = interp.toShort()
+      }
+      resampled
+    }
+
+    val outBuf = ByteBuffer.allocate(finalSamples.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+    for (sample in finalSamples) {
+      outBuf.putShort(sample)
+    }
+    return outBuf.array()
+  }
+
+  /**
+   * Writes [bytes] to a sibling temporary file first and atomically moves it into place at
+   * [targetFile] so concurrent readers (such as `MediaPlayer` or JSON loaders) never see a
+   * partially-written or truncated file.
+   */
+  fun writeBytesAtomically(targetFile: File, bytes: ByteArray) {
+    val parent = targetFile.parentFile
+    parent?.mkdirs()
+    val tempFile = File(parent, ".${targetFile.name}.${UUID.randomUUID()}.tmp")
+    try {
+      tempFile.writeBytes(bytes)
+      try {
+        Files.move(
+          tempFile.toPath(),
+          targetFile.toPath(),
+          StandardCopyOption.REPLACE_EXISTING,
+          StandardCopyOption.ATOMIC_MOVE
+        )
+      } catch (_: Exception) {
+        Files.move(
+          tempFile.toPath(),
+          targetFile.toPath(),
+          StandardCopyOption.REPLACE_EXISTING
+        )
+      }
+    } finally {
+      if (tempFile.exists()) {
+        runCatching { tempFile.delete() }
+      }
+    }
   }
 
   /**

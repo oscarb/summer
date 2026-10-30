@@ -24,6 +24,10 @@ object PodcastScriptParser {
   private val MARKDOWN_DECORATION_REGEX = Regex("""(\*\*|__|`)""")
   private val ITALIC_STAR_REGEX = Regex("""(?<!\*)\*(?!\s)([^*]+?)(?<!\s)\*(?!\*)""")
   private val ITALIC_UNDERSCORE_REGEX = Regex("""(?<!_)_(?!\s)([^_]+?)(?<!\s)_(?!_)""")
+  private val SECOND_HOST_FALLBACK_REGEX = Regex(
+    pattern = """^(?:co-?host|(?:host|speaker|person|voice)\s*[-#]?\s*(?:2|b|two))$|\bco-?host\b""",
+    option = RegexOption.IGNORE_CASE
+  )
 
   /**
    * Parses a raw LLM-generated script into structured [DialogueTurn] items.
@@ -117,12 +121,32 @@ object PodcastScriptParser {
     val aLower = hostAName.trim().lowercase()
     val bLower = hostBName.trim().lowercase()
 
-    return when {
-      normalized == bLower || normalized.contains(bLower) -> true
-      normalized == aLower || normalized.contains(aLower) -> false
-      normalized.endsWith("2") || normalized.endsWith("b") || normalized.contains("co-host") -> true
-      else -> false
-    }
+    // 1. Exact case-insensitive match first (prevents "Alex" matching Host B "Al" or "Samantha" matching "Sam")
+    if (bLower.isNotEmpty() && normalized == bLower) return true
+    if (aLower.isNotEmpty() && normalized == aLower) return false
+
+    // 2. Whole-word match (preferring the longer host name if both appear)
+    val wholeA = containsWholeName(normalized, aLower)
+    val wholeB = containsWholeName(normalized, bLower)
+    if (wholeA && !wholeB) return false
+    if (wholeB && !wholeA) return true
+    if (wholeA && wholeB) return bLower.length > aLower.length
+
+    // 3. Substring match (preferring the longer host name if both appear)
+    val subA = aLower.isNotEmpty() && normalized.contains(aLower)
+    val subB = bLower.isNotEmpty() && normalized.contains(bLower)
+    if (subA && !subB) return false
+    if (subB && !subA) return true
+    if (subA && subB) return bLower.length > aLower.length
+
+    // 4. Generic role fallback (e.g. "Host B", "Speaker 2", "Co-host") without matching names like "Bob" or "Jacob"
+    return SECOND_HOST_FALLBACK_REGEX.containsMatchIn(normalized)
+  }
+
+  private fun containsWholeName(haystack: String, needle: String): Boolean {
+    if (needle.isBlank()) return false
+    val pattern = Regex("""(?<!\p{L})${Regex.escape(needle)}(?!\p{L})""", RegexOption.IGNORE_CASE)
+    return pattern.containsMatchIn(haystack)
   }
 
   /**
@@ -142,6 +166,7 @@ object PodcastScriptParser {
     cleaned = ITALIC_UNDERSCORE_REGEX.replace(cleaned, "$1")
     return cleaned
       .replace(Regex("""\s+"""), " ")
+      .replace(Regex("""\s+([.,!?;:])"""), "$1")
       .trim()
   }
 

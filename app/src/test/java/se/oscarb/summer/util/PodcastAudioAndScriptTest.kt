@@ -24,7 +24,7 @@ class PodcastAudioAndScriptTest {
 
     assertEquals("Alex", turns[0].speaker)
     assertFalse(turns[0].isHostB)
-    assertEquals("Welcome back to Summer! Today we're connecting two big stories .", turns[0].text)
+    assertEquals("Welcome back to Summer! Today we're connecting two big stories.", turns[0].text)
 
     assertEquals("Sam", turns[1].speaker)
     assertTrue(turns[1].isHostB)
@@ -154,5 +154,87 @@ class PodcastAudioAndScriptTest {
     // Speaker names like "Joe" or "Jane" are not valid prebuiltVoiceConfig IDs and should normalize
     assertEquals("Puck", GeminiCatalog.resolveValidVoice("Joe", "Puck"))
     assertEquals("Kore", GeminiCatalog.resolveValidVoice("Jane", "Kore"))
+  }
+
+  @Test
+  fun parseTurns_distinguishesSubstringHostNamesAndAvoidsTrailingBFalsePositive() {
+    // Host A ("Alex") contains Host B ("Al") as a prefix — Alex turns must NOT be misclassified as Host B
+    val substringScript = """
+      Alex: Welcome to the show!
+      Al: Glad to be here, Alex.
+      Host Alex: Let's jump into story one.
+    """.trimIndent()
+    val turns = PodcastScriptParser.parseTurns(substringScript, hostAName = "Alex", hostBName = "Al")
+    assertEquals(3, turns.size)
+    assertFalse(turns[0].isHostB)
+    assertEquals("Alex", turns[0].speaker)
+    assertTrue(turns[1].isHostB)
+    assertEquals("Al", turns[1].speaker)
+    assertFalse(turns[2].isHostB)
+    assertEquals("Alex", turns[2].speaker)
+
+    // Host A ("Bob") ends with 'b' — must NOT trigger "Host B" fallback
+    val bobScript = """
+      Bob: First story comes from KotlinConf.
+      Speaker 2: And it's a huge update!
+    """.trimIndent()
+    val bobTurns = PodcastScriptParser.parseTurns(bobScript, hostAName = "Bob", hostBName = "Sam")
+    assertEquals(2, bobTurns.size)
+    assertFalse(bobTurns[0].isHostB)
+    assertEquals("Bob", bobTurns[0].speaker)
+    assertTrue(bobTurns[1].isHostB)
+    assertEquals("Sam", bobTurns[1].speaker)
+  }
+
+  @Test
+  fun wavAudioUtils_normalizesMixedSampleRatesAndStereoWhenStitching() {
+    val tempDir = Files.createTempDirectory("summer_wav_resample_test").toFile()
+    try {
+      // Turn 1: 0.1s at 16,000 Hz mono (1,600 samples = 3,200 bytes)
+      val pcm16kMono = ByteArray(3_200) { 10 }
+      val file1 = File(tempDir, "turn_16k_mono.wav").apply {
+        writeBytes(WavAudioUtils.wrapPcmInWav(pcm16kMono, sampleRate = 16_000, channels = 1, bitsPerSample = 16))
+      }
+
+      // Turn 2: 0.1s at 24,000 Hz stereo 2ch (2,400 frames * 4 bytes = 9,600 bytes)
+      val pcm24kStereo = ByteArray(9_600) { 20 }
+      val file2 = File(tempDir, "turn_24k_stereo.wav").apply {
+        writeBytes(WavAudioUtils.wrapPcmInWav(pcm24kStereo, sampleRate = 24_000, channels = 2, bitsPerSample = 16))
+      }
+
+      val output = File(tempDir, "normalized_stitched.wav")
+      WavAudioUtils.stitchWavFiles(
+        inputWavFiles = listOf(file1, file2),
+        outputFile = output,
+        pauseMs = 100 // 0.1s at 24kHz mono = 2,400 samples = 4,800 bytes
+      )
+
+      val parsed = WavAudioUtils.parseWav(output.readBytes())
+      assertEquals(24_000, parsed.sampleRate)
+      assertEquals(1, parsed.channels)
+      assertEquals(16, parsed.bitsPerSample)
+      // 0.1s (4,800B) + 0.1s silence (4,800B) + 0.1s downmixed mono (4,800B) = 14,400 bytes
+      assertEquals(14_400, parsed.pcmBytes.size)
+    } finally {
+      tempDir.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun writeBytesAtomically_overwritesTargetCleanlyWithoutLeavingTempFiles() {
+    val tempDir = Files.createTempDirectory("summer_atomic_write_test").toFile()
+    try {
+      val target = File(tempDir, "episode.wav")
+      WavAudioUtils.writeBytesAtomically(target, byteArrayOf(1, 2, 3))
+      assertArrayEquals(byteArrayOf(1, 2, 3), target.readBytes())
+
+      WavAudioUtils.writeBytesAtomically(target, byteArrayOf(4, 5, 6, 7))
+      assertArrayEquals(byteArrayOf(4, 5, 6, 7), target.readBytes())
+
+      // Only the final file should remain in tempDir (no leftover .tmp files)
+      assertEquals(listOf("episode.wav"), tempDir.listFiles()?.map { it.name })
+    } finally {
+      tempDir.deleteRecursively()
+    }
   }
 }
