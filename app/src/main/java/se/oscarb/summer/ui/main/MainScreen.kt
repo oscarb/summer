@@ -7,10 +7,16 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +61,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Unarchive
@@ -87,7 +94,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -105,6 +111,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -112,6 +119,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -123,21 +131,29 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
 import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
 import se.oscarb.summer.data.AiBackend
 import se.oscarb.summer.data.AppSettings
 import se.oscarb.summer.data.DigestEntry
 import se.oscarb.summer.data.GeminiCatalog
 import se.oscarb.summer.data.LinkFilter
 import se.oscarb.summer.data.OnDeviceTtsCatalog
+import se.oscarb.summer.data.PodcastCastCatalog
+import se.oscarb.summer.data.PodcastLanguage
 import se.oscarb.summer.data.PodcastTtsProvider
 import se.oscarb.summer.data.SavedWebsite
-import se.oscarb.summer.data.TtsEngineOption
 import se.oscarb.summer.data.TtsVoiceOption
 import se.oscarb.summer.podcast.PodcastPlaybackState
+import se.oscarb.summer.ui.components.MarkdownText
 import se.oscarb.summer.util.ExternalBrowserLauncher
-import se.oscarb.summer.util.PodcastScriptParser
 import java.text.DateFormat
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Date
+import java.util.Locale
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -179,6 +195,20 @@ fun MainScreen(
     }
   }
 
+  LaunchedEffect(state.podcastPlayback.playbackError) {
+    state.podcastPlayback.playbackError?.let { errorMsg ->
+      snackbarHostState.showSnackbar(errorMsg)
+      viewModel.clearPlaybackError()
+    }
+  }
+
+  LaunchedEffect(state.postSaveEvent) {
+    if (state.postSaveEvent != null) {
+      delay(6_500L)
+      viewModel.clearPostSaveEvent()
+    }
+  }
+
   Scaffold(
     modifier = modifier.fillMaxSize(),
     snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -194,7 +224,7 @@ fun MainScreen(
             Text(
               text = when (selectedTab) {
                 0 -> "${state.unreadCount} unread website(s) • ${state.settings.selectedBackend.displayName}"
-                1 -> "${state.digests.size} saved AI briefing(s) & podcast(s)"
+                1 -> "${state.digests.size} saved podcast digest(s)"
                 else -> "AI Providers, Podcast Voices & Browser Setup"
               },
               style = MaterialTheme.typography.labelSmall,
@@ -237,7 +267,7 @@ fun MainScreen(
           text = {
             Text(
               if (state.isGeneratingDigest) {
-                "Summarizing ${state.unreadCount}..."
+                "Creating Podcast..."
               } else {
                 "Catch Me Up (${state.unreadCount})"
               }
@@ -248,7 +278,36 @@ fun MainScreen(
     },
     bottomBar = {
       Column {
-        if (state.podcastPlayback.isActive || state.podcastPlayback.isGeneratingInBackground) {
+        AnimatedVisibility(
+          visible = state.postSaveEvent != null,
+          enter = expandVertically() + fadeIn(),
+          exit = shrinkVertically() + fadeOut()
+        ) {
+          state.postSaveEvent?.let { postSave ->
+            InAppPostSaveActionBar(
+              event = postSave,
+              onOpenLink = {
+                viewModel.clearPostSaveEvent()
+                ExternalBrowserLauncher.openInExternalBrowser(
+                  context = context,
+                  url = postSave.url,
+                  preferredBrowserPackage = state.settings.preferredBrowserPackage,
+                  useCustomTabs = state.settings.useCustomTabs
+                )
+              },
+              onGeneratePodcast = {
+                ensureNotificationPermissionForPodcast()
+                viewModel.triggerBackgroundPodcastFromBanner()
+              },
+              onDismiss = viewModel::clearPostSaveEvent
+            )
+          }
+        }
+        if (
+          state.podcastPlayback.isActive ||
+          state.podcastPlayback.isGeneratingInBackground ||
+          state.podcastPlayback.isQuietWindowWaiting
+        ) {
           PodcastMiniPlayerBar(
             playback = state.podcastPlayback,
             onTogglePlayPause = viewModel::togglePodcastPlayPause,
@@ -256,7 +315,12 @@ fun MainScreen(
             onSkipForward15 = { viewModel.skipPodcastBy(15_000L) },
             onSeekTo = viewModel::seekPodcastTo,
             onClose = viewModel::stopPodcastPlayback,
-            onOpenDetails = viewModel::openActivePodcastDetails
+            onOpenDetails = viewModel::openActivePodcastDetails,
+            onTriggerQuietWindowNow = {
+              ensureNotificationPermissionForPodcast()
+              viewModel.triggerQuietWindowPodcastNow()
+            },
+            onCancelQuietWindow = viewModel::cancelQuietWindowCountdown
           )
         }
         NavigationBar {
@@ -293,10 +357,6 @@ fun MainScreen(
           onFilterSelect = viewModel::setFilter,
           onCardClick = viewModel::onWebsiteCardClicked,
           onSummarizeClick = viewModel::resummarizeWebsite,
-          onListenArticleClick = { website, forceRegen ->
-            ensureNotificationPermissionForPodcast()
-            viewModel.playOrGenerateWebsitePodcast(website, forceRegenerate = forceRegen)
-          },
           onToggleArchive = viewModel::toggleArchive,
           onDelete = viewModel::deleteWebsite,
           onOpenExternal = { url ->
@@ -335,7 +395,7 @@ fun MainScreen(
     }
   }
 
-  // Catch Me Up Digest Modal Bottom Sheet
+  // Catch Me Up Podcast Digest Modal Bottom Sheet
   state.activeDigestSheet?.let { activeDigest ->
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
@@ -349,10 +409,6 @@ fun MainScreen(
         onPlayOrGeneratePodcast = { forceRegen ->
           ensureNotificationPermissionForPodcast()
           viewModel.playOrGenerateDigestPodcast(activeDigest, forceRegenerate = forceRegen)
-        },
-        onGenerateInBackground = {
-          ensureNotificationPermissionForPodcast()
-          viewModel.generateDigestPodcastInBackground(activeDigest)
         },
         onOpenSourceUrl = { url ->
           ExternalBrowserLauncher.openInExternalBrowser(
@@ -382,6 +438,66 @@ fun MainScreen(
 }
 
 @Composable
+private fun InAppPostSaveActionBar(
+  event: PostSaveBannerEvent,
+  onOpenLink: () -> Unit,
+  onGeneratePodcast: () -> Unit,
+  onDismiss: () -> Unit
+) {
+  Surface(
+    color = MaterialTheme.colorScheme.inverseSurface,
+    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+    shape = RoundedCornerShape(14.dp),
+    shadowElevation = 6.dp,
+    modifier = Modifier
+      .fillMaxWidth()
+      .padding(horizontal = 12.dp, vertical = 6.dp)
+  ) {
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Text(
+        text = if (event.wasBumped) {
+          "Moved ${event.domain} to top"
+        } else {
+          "Saved ${event.domain}"
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        fontWeight = FontWeight.Medium,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.weight(1f)
+      )
+      TextButton(onClick = onOpenLink) {
+        Text(
+          text = "Open Link",
+          color = MaterialTheme.colorScheme.inversePrimary,
+          fontWeight = FontWeight.SemiBold
+        )
+      }
+      TextButton(onClick = onGeneratePodcast) {
+        Text(
+          text = "Podcast",
+          color = MaterialTheme.colorScheme.inversePrimary,
+          fontWeight = FontWeight.SemiBold
+        )
+      }
+      IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+        Icon(
+          imageVector = Icons.Default.Close,
+          contentDescription = "Dismiss",
+          tint = MaterialTheme.colorScheme.inverseOnSurface,
+          modifier = Modifier.size(16.dp)
+        )
+      }
+    }
+  }
+}
+
+@Composable
 private fun PodcastMiniPlayerBar(
   playback: PodcastPlaybackState,
   onTogglePlayPause: () -> Unit,
@@ -389,7 +505,9 @@ private fun PodcastMiniPlayerBar(
   onSkipForward15: () -> Unit,
   onSeekTo: (Long) -> Unit,
   onClose: () -> Unit,
-  onOpenDetails: () -> Unit
+  onOpenDetails: () -> Unit,
+  onTriggerQuietWindowNow: () -> Unit,
+  onCancelQuietWindow: () -> Unit
 ) {
   Surface(
     tonalElevation = 6.dp,
@@ -398,38 +516,11 @@ private fun PodcastMiniPlayerBar(
     modifier = Modifier.fillMaxWidth()
   ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-      if (playback.isGeneratingInBackground && !playback.isActive) {
+      if (playback.isGeneratingInBackground) {
         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        Row(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          CircularProgressIndicator(
-            modifier = Modifier.size(20.dp),
-            strokeWidth = 2.dp
-          )
-          Spacer(modifier = Modifier.width(12.dp))
-          Column(modifier = Modifier.weight(1f)) {
-            Text(
-              text = "🎙️ Generating: ${playback.generationTitle ?: "Summer Podcast"}",
-              style = MaterialTheme.typography.labelLarge,
-              fontWeight = FontWeight.SemiBold,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis
-            )
-            Text(
-              text = playback.generationStatusText
-                ?: "Safe to background the app or turn off screen",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis
-            )
-          }
-        }
-      } else if (playback.isActive) {
+      }
+
+      if (playback.isActive) {
         var scrubPositionMs by remember(playback.audioFilePath) { mutableStateOf<Float?>(null) }
         val displayedPositionMs = scrubPositionMs?.toLong() ?: playback.positionMs
 
@@ -529,6 +620,89 @@ private fun PodcastMiniPlayerBar(
               .padding(horizontal = 12.dp)
           )
         }
+      } else if (playback.isGeneratingInBackground) {
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          CircularProgressIndicator(
+            modifier = Modifier.size(20.dp),
+            strokeWidth = 2.dp
+          )
+          Spacer(modifier = Modifier.width(12.dp))
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = "🎙️ Generating: ${playback.generationTitle ?: "Summer Podcast"}",
+              style = MaterialTheme.typography.labelLarge,
+              fontWeight = FontWeight.SemiBold,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis
+            )
+            Text(
+              text = playback.generationStatusText
+                ?: "Silent in background — you'll get a notification to play when ready",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis
+            )
+          }
+        }
+      } else if (playback.isQuietWindowWaiting) {
+        var nowMs by remember(playback.quietWindowDeadlineMs) {
+          mutableLongStateOf(System.currentTimeMillis())
+        }
+        LaunchedEffect(playback.quietWindowDeadlineMs) {
+          while (true) {
+            nowMs = System.currentTimeMillis()
+            if (nowMs >= playback.quietWindowDeadlineMs) break
+            delay(1_000L)
+          }
+        }
+        val remainingMs = (playback.quietWindowDeadlineMs - nowMs).coerceAtLeast(0L)
+
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Icon(
+            imageVector = Icons.Default.Schedule,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp)
+          )
+          Spacer(modifier = Modifier.width(10.dp))
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = "Auto-podcast in ${formatDurationMs(remainingMs)}",
+              style = MaterialTheme.typography.labelLarge,
+              fontWeight = FontWeight.SemiBold,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis
+            )
+            Text(
+              text = "${playback.quietWindowLinkCount} links in session • resets if you save another",
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis
+            )
+          }
+          TextButton(onClick = onTriggerQuietWindowNow) {
+            Text("Start Now", fontWeight = FontWeight.SemiBold)
+          }
+          IconButton(onClick = onCancelQuietWindow, modifier = Modifier.size(32.dp)) {
+            Icon(
+              imageVector = Icons.Default.Close,
+              contentDescription = "Cancel auto-podcast timer",
+              modifier = Modifier.size(18.dp)
+            )
+          }
+        }
       }
     }
   }
@@ -541,19 +715,54 @@ private fun formatDurationMs(ms: Long): String {
   return "%d:%02d".format(minutes, seconds)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+internal fun formatDateHeaderLabel(
+  date: LocalDate,
+  today: LocalDate,
+  locale: Locale = Locale.getDefault()
+): String {
+  return when {
+    date == today -> "Today"
+    date == today.minusDays(1) -> "Yesterday"
+    date.year == today.year -> DateTimeFormatter.ofPattern("MMM d", locale).format(date)
+    else -> DateTimeFormatter.ofPattern("MMM d, yyyy", locale).format(date)
+  }
+}
+
+internal fun groupWebsitesByCreatedDate(
+  websites: List<SavedWebsite>,
+  zoneId: ZoneId = ZoneId.systemDefault(),
+  today: LocalDate = LocalDate.now(zoneId),
+  locale: Locale = Locale.getDefault()
+): List<Pair<String, List<SavedWebsite>>> {
+  if (websites.isEmpty()) return emptyList()
+  return websites
+    .sortedByDescending { it.createdAt }
+    .groupBy { site ->
+      Instant.ofEpochMilli(site.createdAt).atZone(zoneId).toLocalDate()
+    }
+    .entries
+    .sortedByDescending { it.key }
+    .map { (date, itemsForDay) ->
+      formatDateHeaderLabel(date, today, locale) to itemsForDay
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun SavedLinksTab(
   state: SummerUiState,
   onFilterSelect: (LinkFilter) -> Unit,
   onCardClick: (SavedWebsite) -> Unit,
   onSummarizeClick: (String) -> Unit,
-  onListenArticleClick: (SavedWebsite, Boolean) -> Unit,
   onToggleArchive: (SavedWebsite) -> Unit,
   onDelete: (String) -> Unit,
   onOpenExternal: (String) -> Unit,
   onAddSampleOrUrl: () -> Unit
 ) {
+  val dateSections = remember(state.filteredWebsites) {
+    groupWebsitesByCreatedDate(state.filteredWebsites)
+  }
+
   Column(modifier = Modifier.fillMaxSize()) {
     // Filter Chips Row
     Row(
@@ -592,89 +801,100 @@ private fun SavedLinksTab(
         contentPadding = PaddingValues(
           start = 16.dp,
           end = 16.dp,
-          top = 4.dp,
+          top = 0.dp,
           bottom = 96.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
       ) {
-        items(
-          items = state.filteredWebsites,
-          key = { it.id }
-        ) { website ->
-          val dismissState = rememberSwipeToDismissBoxState(
-            confirmValueChange = { value ->
-              when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                  onToggleArchive(website)
-                  false
-                }
-                SwipeToDismissBoxValue.EndToStart -> {
-                  onDelete(website.id)
-                  true
-                }
-                SwipeToDismissBoxValue.Settled -> false
-              }
+        dateSections.forEach { (dateLabel, itemsForDay) ->
+          stickyHeader(key = "date_header_$dateLabel") {
+            Surface(
+              color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Text(
+                text = dateLabel,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp, start = 4.dp, end = 4.dp)
+              )
             }
-          )
+          }
 
-          SwipeToDismissBox(
-            state = dismissState,
-            backgroundContent = {
-              val direction = dismissState.dismissDirection
-              val bgColor = when (direction) {
-                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.secondaryContainer
-                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                else -> MaterialTheme.colorScheme.surfaceVariant
-              }
-              Box(
-                modifier = Modifier
-                  .fillMaxSize()
-                  .clip(RoundedCornerShape(16.dp))
-                  .background(bgColor)
-                  .padding(horizontal = 20.dp),
-                contentAlignment = when (direction) {
-                  SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
-                  else -> Alignment.CenterEnd
-                }
-              ) {
-                if (direction == SwipeToDismissBoxValue.StartToEnd) {
-                  Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                      imageVector = if (website.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
-                      contentDescription = null
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (website.isArchived) "Move to Unread" else "Archive")
+          items(
+            items = itemsForDay,
+            key = { it.id }
+          ) { website ->
+            val dismissState = rememberSwipeToDismissBoxState(
+              confirmValueChange = { value ->
+                when (value) {
+                  SwipeToDismissBoxValue.StartToEnd -> {
+                    onToggleArchive(website)
+                    false
                   }
-                } else if (direction == SwipeToDismissBoxValue.EndToStart) {
-                  Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Delete", color = MaterialTheme.colorScheme.onErrorContainer)
-                    Spacer(Modifier.width(8.dp))
-                    Icon(
-                      imageVector = Icons.Default.DeleteOutline,
-                      contentDescription = null,
-                      tint = MaterialTheme.colorScheme.onErrorContainer
-                    )
+                  SwipeToDismissBoxValue.EndToStart -> {
+                    onDelete(website.id)
+                    true
                   }
+                  SwipeToDismissBoxValue.Settled -> false
                 }
               }
-            }
-          ) {
-            val isThisArticlePlaying =
-              state.podcastPlayback.isActive &&
-                state.podcastPlayback.activeWebsiteId == website.id &&
-                state.podcastPlayback.isPlaying
-            WebsiteItemCard(
-              website = website,
-              isExpanded = website.id in state.expandedWebsiteIds,
-              isPlayingAudio = isThisArticlePlaying,
-              onCardClick = { onCardClick(website) },
-              onSummarizeClick = { onSummarizeClick(website.id) },
-              onListenClick = { forceRegen -> onListenArticleClick(website, forceRegen) },
-              onToggleArchive = { onToggleArchive(website) },
-              onDelete = { onDelete(website.id) },
-              onOpenExternal = { onOpenExternal(website.url) }
             )
+
+            SwipeToDismissBox(
+              state = dismissState,
+              backgroundContent = {
+                val direction = dismissState.dismissDirection
+                val bgColor = when (direction) {
+                  SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.secondaryContainer
+                  SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                  else -> MaterialTheme.colorScheme.surfaceVariant
+                }
+                Box(
+                  modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(bgColor)
+                    .padding(horizontal = 20.dp),
+                  contentAlignment = when (direction) {
+                    SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+                    else -> Alignment.CenterEnd
+                  }
+                ) {
+                  if (direction == SwipeToDismissBoxValue.StartToEnd) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                      Icon(
+                        imageVector = if (website.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                        contentDescription = null
+                      )
+                      Spacer(Modifier.width(8.dp))
+                      Text(if (website.isArchived) "Move to Unread" else "Archive")
+                    }
+                  } else if (direction == SwipeToDismissBoxValue.EndToStart) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                      Text("Delete", color = MaterialTheme.colorScheme.onErrorContainer)
+                      Spacer(Modifier.width(8.dp))
+                      Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onErrorContainer
+                      )
+                    }
+                  }
+                }
+              }
+            ) {
+              WebsiteItemCard(
+                website = website,
+                isExpanded = website.id in state.expandedWebsiteIds,
+                onCardClick = { onCardClick(website) },
+                onSummarizeClick = { onSummarizeClick(website.id) },
+                onToggleArchive = { onToggleArchive(website) },
+                onDelete = { onDelete(website.id) },
+                onOpenExternal = { onOpenExternal(website.url) }
+              )
+            }
           }
         }
       }
@@ -686,20 +906,13 @@ private fun SavedLinksTab(
 private fun WebsiteItemCard(
   website: SavedWebsite,
   isExpanded: Boolean,
-  isPlayingAudio: Boolean,
   onCardClick: () -> Unit,
   onSummarizeClick: () -> Unit,
-  onListenClick: (Boolean) -> Unit,
   onToggleArchive: () -> Unit,
   onDelete: () -> Unit,
   onOpenExternal: () -> Unit
 ) {
   val context = LocalContext.current
-  val dateStr = remember(website.updatedAt) {
-    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-      .format(Date(website.updatedAt))
-  }
-  var showSpokenTranscript by rememberSaveable(website.id) { mutableStateOf(false) }
 
   ElevatedCard(
     modifier = Modifier
@@ -708,30 +921,31 @@ private fun WebsiteItemCard(
     shape = RoundedCornerShape(16.dp),
     elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
   ) {
-    Column(modifier = Modifier.padding(16.dp)) {
-      // Top Row: Favicon + Title + Expand Icon
+    Column(modifier = Modifier.padding(14.dp)) {
+      // Top Row: Square Left Thumbnail (zero padding) + Title & Small Favicon + Domain (no chevron, no timestamp)
       Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
       ) {
-        Surface(
-          modifier = Modifier.size(40.dp),
-          shape = RoundedCornerShape(10.dp),
-          color = MaterialTheme.colorScheme.surfaceVariant
+        Box(
+          modifier = Modifier
+            .size(56.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+          contentAlignment = Alignment.Center
         ) {
-          Box(contentAlignment = Alignment.Center) {
-            Icon(
-              imageVector = Icons.Default.Language,
-              contentDescription = null,
-              modifier = Modifier.size(22.dp),
-              tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+          Icon(
+            imageVector = Icons.Default.Language,
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+          )
+          if (website.thumbnailUrl.isNotBlank()) {
             AsyncImage(
-              model = website.faviconUrl,
-              contentDescription = "${website.domain} favicon",
-              modifier = Modifier
-                .size(28.dp)
-                .clip(RoundedCornerShape(6.dp))
+              model = website.thumbnailUrl,
+              contentDescription = "${website.domain} thumbnail",
+              contentScale = ContentScale.Crop,
+              modifier = Modifier.fillMaxSize()
             )
           }
         }
@@ -746,14 +960,24 @@ private fun WebsiteItemCard(
             maxLines = if (isExpanded) 4 else 2,
             overflow = TextOverflow.Ellipsis
           )
-          Spacer(modifier = Modifier.height(2.dp))
+          Spacer(modifier = Modifier.height(4.dp))
           Row(verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(
+              model = website.faviconUrl,
+              contentDescription = "${website.domain} icon",
+              contentScale = ContentScale.Fit,
+              modifier = Modifier
+                .size(15.dp)
+                .clip(RoundedCornerShape(3.dp))
+            )
+            Spacer(modifier = Modifier.width(5.dp))
             Text(
-              text = "${website.domain} • $dateStr",
+              text = website.domain,
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
               maxLines = 1,
-              overflow = TextOverflow.Ellipsis
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.weight(1f, fill = false)
             )
             if (website.summary != null) {
               Spacer(modifier = Modifier.width(6.dp))
@@ -762,35 +986,14 @@ private fun WebsiteItemCard(
                 shape = CircleShape
               ) {
                 Text(
-                  text = "AI Ready",
+                  text = "AI",
                   style = MaterialTheme.typography.labelSmall,
                   color = MaterialTheme.colorScheme.onPrimaryContainer,
-                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-              }
-            }
-            if (website.podcastAudioPath != null) {
-              Spacer(modifier = Modifier.width(6.dp))
-              Surface(
-                color = MaterialTheme.colorScheme.tertiaryContainer,
-                shape = CircleShape
-              ) {
-                Text(
-                  text = "🎧 Audio",
-                  style = MaterialTheme.typography.labelSmall,
-                  color = MaterialTheme.colorScheme.onTertiaryContainer,
-                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
                 )
               }
             }
           }
-        }
-
-        IconButton(onClick = onCardClick) {
-          Icon(
-            imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-            contentDescription = if (isExpanded) "Collapse" else "Expand"
-          )
         }
       }
 
@@ -799,35 +1002,19 @@ private fun WebsiteItemCard(
         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
       }
 
-      // Inline Expanded Section: AI Summary + Conversational Audio + Action Buttons
+      // Inline Expanded Section: Flattened Markdown AI Summary + Action Buttons
       AnimatedVisibility(
         visible = isExpanded,
         enter = expandVertically() + fadeIn(),
         exit = shrinkVertically() + fadeOut()
       ) {
         Column(modifier = Modifier.padding(top = 12.dp)) {
-          HorizontalDivider()
-          Spacer(modifier = Modifier.height(12.dp))
+          HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+          Spacer(modifier = Modifier.height(10.dp))
 
           when {
             website.isSummarizing -> {
-              Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .padding(vertical = 12.dp)
-              ) {
-                CircularProgressIndicator(
-                  modifier = Modifier.size(20.dp),
-                  strokeWidth = 2.dp
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                  text = "Generating AI summary...",
-                  style = MaterialTheme.typography.bodyMedium,
-                  color = MaterialTheme.colorScheme.primary
-                )
-              }
+              SummarySkeletonLoader()
             }
             website.summaryError != null -> {
               Surface(
@@ -851,50 +1038,43 @@ private fun WebsiteItemCard(
               }
             }
             website.summary != null -> {
-              Surface(
-                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
-                shape = RoundedCornerShape(12.dp),
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth()
               ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                  Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                  ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                      Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                      )
-                      Spacer(modifier = Modifier.width(6.dp))
-                      Text(
-                        text = website.summaryProvider ?: "AI Summary",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                      )
-                    }
-                    IconButton(
-                      onClick = onSummarizeClick,
-                      modifier = Modifier.size(28.dp)
-                    ) {
-                      Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Regenerate summary",
-                        modifier = Modifier.size(16.dp)
-                      )
-                    }
-                  }
-                  Spacer(modifier = Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                  )
+                  Spacer(modifier = Modifier.width(5.dp))
                   Text(
-                    text = website.summary,
-                    style = MaterialTheme.typography.bodyMedium
+                    text = website.summaryProvider ?: "AI Summary",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                  )
+                }
+                IconButton(
+                  onClick = onSummarizeClick,
+                  modifier = Modifier.size(26.dp)
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Regenerate summary",
+                    modifier = Modifier.size(15.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                   )
                 }
               }
+              Spacer(modifier = Modifier.height(6.dp))
+              MarkdownText(
+                markdown = website.summary,
+                style = MaterialTheme.typography.bodyMedium
+              )
             }
             else -> {
               Button(
@@ -904,129 +1084,6 @@ private fun WebsiteItemCard(
                 Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Summarize Website")
-              }
-            }
-          }
-
-          Spacer(modifier = Modifier.height(10.dp))
-
-          // Conversational Spoken Podcast Audio for this Article
-          when {
-            website.isGeneratingPodcast -> {
-              Surface(
-                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-              ) {
-                Row(
-                  verticalAlignment = Alignment.CenterVertically,
-                  modifier = Modifier.padding(12.dp)
-                ) {
-                  CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp
-                  )
-                  Spacer(modifier = Modifier.width(10.dp))
-                  Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                      text = website.podcastStatusText ?: "Generating conversational audio...",
-                      style = MaterialTheme.typography.labelMedium,
-                      fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                      text = "Continues in background if you lock screen or leave app",
-                      style = MaterialTheme.typography.labelSmall,
-                      color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                  }
-                }
-              }
-            }
-            website.podcastError != null -> {
-              Surface(
-                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-              ) {
-                Row(
-                  verticalAlignment = Alignment.CenterVertically,
-                  horizontalArrangement = Arrangement.SpaceBetween,
-                  modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                  Text(
-                    text = website.podcastError,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.weight(1f)
-                  )
-                  TextButton(onClick = { onListenClick(true) }) {
-                    Text("Retry Audio")
-                  }
-                }
-              }
-            }
-            else -> {
-              Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-              ) {
-                FilledTonalButton(
-                  onClick = { onListenClick(false) },
-                  modifier = Modifier.weight(1f)
-                ) {
-                  Icon(
-                    imageVector = when {
-                      isPlayingAudio -> Icons.Default.Pause
-                      website.podcastAudioPath != null -> Icons.Default.PlayArrow
-                      else -> Icons.Default.Headphones
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                  )
-                  Spacer(modifier = Modifier.width(8.dp))
-                  Text(
-                    text = when {
-                      isPlayingAudio -> "Pause Conversational Audio"
-                      website.podcastAudioPath != null -> "Play Conversational Audio"
-                      else -> "Listen (Natural 2-Host Audio)"
-                    }
-                  )
-                }
-
-                if (website.podcastAudioPath != null) {
-                  IconButton(onClick = { onListenClick(true) }) {
-                    Icon(
-                      imageVector = Icons.Default.Refresh,
-                      contentDescription = "Regenerate spoken audio"
-                    )
-                  }
-                }
-              }
-
-              if (!website.podcastScript.isNullOrBlank()) {
-                TextButton(
-                  onClick = { showSpokenTranscript = !showSpokenTranscript },
-                  contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                ) {
-                  Text(
-                    text = if (showSpokenTranscript) "Hide Spoken Dialogue Script" else "Show Spoken Dialogue Script",
-                    style = MaterialTheme.typography.labelSmall
-                  )
-                }
-                if (showSpokenTranscript) {
-                  Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                  ) {
-                    Text(
-                      text = website.podcastScript,
-                      style = MaterialTheme.typography.bodySmall,
-                      modifier = Modifier.padding(10.dp)
-                    )
-                  }
-                }
               }
             }
           }
@@ -1098,6 +1155,80 @@ private fun WebsiteItemCard(
 }
 
 @Composable
+private fun SummarySkeletonLoader() {
+  val transition = rememberInfiniteTransition(label = "summary_skeleton")
+  val pulseAlpha by transition.animateFloat(
+    initialValue = 0.28f,
+    targetValue = 0.72f,
+    animationSpec = infiniteRepeatable(
+      animation = tween(durationMillis = 850),
+      repeatMode = RepeatMode.Reverse
+    ),
+    label = "skeleton_alpha"
+  )
+  val barColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = pulseAlpha * 0.45f)
+
+  Column(
+    modifier = Modifier
+      .fillMaxWidth()
+      .padding(vertical = 4.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp)
+  ) {
+    // Provider label bar
+    Box(
+      modifier = Modifier
+        .width(108.dp)
+        .height(10.dp)
+        .clip(RoundedCornerShape(5.dp))
+        .background(MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha * 0.45f))
+    )
+
+    Spacer(modifier = Modifier.height(2.dp))
+
+    // TL;DR lines
+    Box(
+      modifier = Modifier
+        .fillMaxWidth(0.96f)
+        .height(13.dp)
+        .clip(RoundedCornerShape(6.dp))
+        .background(barColor)
+    )
+    Box(
+      modifier = Modifier
+        .fillMaxWidth(0.76f)
+        .height(13.dp)
+        .clip(RoundedCornerShape(6.dp))
+        .background(barColor)
+    )
+
+    Spacer(modifier = Modifier.height(2.dp))
+
+    // Bullet point skeleton rows
+    listOf(0.91f, 0.84f, 0.68f).forEach { fraction ->
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Box(
+          modifier = Modifier
+            .size(6.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha * 0.55f))
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Box(
+          modifier = Modifier
+            .fillMaxWidth(fraction)
+            .height(12.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(barColor)
+        )
+      }
+    }
+  }
+}
+
+@Composable
 private fun EmptySavedLinksView(
   activeFilter: LinkFilter,
   onAddLinkClick: () -> Unit
@@ -1127,7 +1258,7 @@ private fun EmptySavedLinksView(
     )
     Spacer(modifier = Modifier.height(8.dp))
     Text(
-      text = "When browsing Google Feed or any app, tap a link and choose \"Summer\" (or use Share → Summer). The link will be saved here with a quick toast while you stay in your app.",
+      text = "When browsing Google Feed or any app, tap a link and choose \"Summer\" (or use Share → Summer). You'll get a quick action bar to open the app, open the link, or start a podcast right away.",
       style = MaterialTheme.typography.bodyMedium,
       color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -1147,7 +1278,6 @@ private fun CatchMeUpDigestSheetContent(
   settings: AppSettings,
   playback: PodcastPlaybackState,
   onPlayOrGeneratePodcast: (Boolean) -> Unit,
-  onGenerateInBackground: () -> Unit,
   onOpenSourceUrl: (String) -> Unit,
   onMarkAllArchived: () -> Unit,
   onDismiss: () -> Unit
@@ -1156,15 +1286,19 @@ private fun CatchMeUpDigestSheetContent(
     DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
       .format(Date(digest.createdAt))
   }
-  var selectedSheetTab by rememberSaveable(digest.id) { mutableIntStateOf(0) }
   val isThisDigestPlaying =
     playback.isActive && playback.activeDigestId == digest.id && playback.isPlaying
-  val turns = remember(digest.podcastScript, settings.hostAName, settings.hostBName) {
-    PodcastScriptParser.parseTurns(
-      rawScript = digest.podcastScript.orEmpty(),
-      hostAName = settings.hostAName,
-      hostBName = settings.hostBName
-    )
+
+  val effectiveHostNames = remember(digest.hostNames, digest.language, settings) {
+    if (digest.hostNames.isNotEmpty()) {
+      digest.hostNames
+    } else {
+      listOf(settings.hostAName, settings.hostBName, settings.hostCName)
+        .take(settings.podcastHostCount.coerceIn(2, 3))
+    }
+  }
+  val hostsLabel = remember(effectiveHostNames, digest.language) {
+    PodcastCastCatalog.formatHostList(effectiveHostNames, digest.language)
   }
 
   Column(
@@ -1179,13 +1313,30 @@ private fun CatchMeUpDigestSheetContent(
       modifier = Modifier.fillMaxWidth()
     ) {
       Column(modifier = Modifier.weight(1f)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Text(
+            text = "☀️ Catch Me Up Podcast",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+          )
+          if (digest.language == PodcastLanguage.SWEDISH) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Surface(
+              color = MaterialTheme.colorScheme.tertiaryContainer,
+              shape = CircleShape
+            ) {
+              Text(
+                text = "🇸🇪 SV",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+              )
+            }
+          }
+        }
         Text(
-          text = "☀️ Catch Me Up Digest",
-          style = MaterialTheme.typography.headlineSmall,
-          fontWeight = FontWeight.Bold
-        )
-        Text(
-          text = "${digest.sourceWebsites.size} website(s) • ${digest.providerName} • $dateStr",
+          text = "${digest.sourceWebsites.size} website(s) • $dateStr",
           style = MaterialTheme.typography.labelMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1194,7 +1345,7 @@ private fun CatchMeUpDigestSheetContent(
 
     Spacer(modifier = Modifier.height(14.dp))
 
-    // Two-Host Podcast Episode Card
+    // Podcast Episode Player Card
     Surface(
       color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
       shape = RoundedCornerShape(16.dp),
@@ -1216,13 +1367,13 @@ private fun CatchMeUpDigestSheetContent(
             Spacer(modifier = Modifier.width(8.dp))
             Column {
               Text(
-                text = "Two-Host Podcast (${settings.hostAName} & ${settings.hostBName})",
+                text = "Hosted by $hostsLabel",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold
               )
               Text(
                 text = digest.podcastVoiceProvider
-                  ?: "Weaves a narrative red line across all ${digest.sourceWebsites.size} articles",
+                  ?: "Conversational episode weaving all ${digest.sourceWebsites.size} saved articles",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
               )
@@ -1239,7 +1390,7 @@ private fun CatchMeUpDigestSheetContent(
           }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         when {
           digest.isGeneratingPodcast -> {
@@ -1254,12 +1405,12 @@ private fun CatchMeUpDigestSheetContent(
               Spacer(modifier = Modifier.width(12.dp))
               Column(modifier = Modifier.weight(1f)) {
                 Text(
-                  text = digest.podcastStatusText ?: "Generating 2-host podcast...",
+                  text = digest.podcastStatusText ?: "Scripting & synthesizing podcast...",
                   style = MaterialTheme.typography.bodySmall,
                   fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                  text = "Runs in background — feel free to lock your screen or switch apps",
+                  text = "Silent in background — you'll get a notification with a Play button once ready",
                   style = MaterialTheme.typography.labelSmall,
                   color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
                 )
@@ -1273,194 +1424,95 @@ private fun CatchMeUpDigestSheetContent(
               color = MaterialTheme.colorScheme.error
             )
             Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-              Button(onClick = { onPlayOrGeneratePodcast(true) }) {
-                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Retry Podcast")
-              }
+            Button(onClick = { onPlayOrGeneratePodcast(true) }) {
+              Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+              Spacer(Modifier.width(6.dp))
+              Text("Retry Podcast")
             }
           }
           digest.podcastAudioPath != null -> {
-            Row(
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Button(
+              onClick = { onPlayOrGeneratePodcast(false) },
               modifier = Modifier.fillMaxWidth()
             ) {
-              Button(
-                onClick = { onPlayOrGeneratePodcast(false) },
-                modifier = Modifier.weight(1f)
-              ) {
-                Icon(
-                  imageVector = if (isThisDigestPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                  contentDescription = null
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(if (isThisDigestPlaying) "Pause Podcast Episode" else "Play Podcast Episode")
-              }
+              Icon(
+                imageVector = if (isThisDigestPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = null
+              )
+              Spacer(Modifier.width(8.dp))
+              Text(if (isThisDigestPlaying) "Pause Podcast Episode" else "Play Podcast Episode")
             }
           }
           else -> {
-            Row(
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Button(
+              onClick = { onPlayOrGeneratePodcast(false) },
               modifier = Modifier.fillMaxWidth()
             ) {
-              Button(
-                onClick = { onPlayOrGeneratePodcast(false) },
-                modifier = Modifier.weight(1.2f)
-              ) {
-                Icon(Icons.Default.Headphones, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Generate & Play")
-              }
-              OutlinedButton(
-                onClick = onGenerateInBackground,
-                modifier = Modifier.weight(1f)
-              ) {
-                Text("In Background")
-              }
+              Icon(Icons.Default.Headphones, contentDescription = null, modifier = Modifier.size(18.dp))
+              Spacer(Modifier.width(8.dp))
+              Text("Generate & Play Podcast")
             }
           }
         }
       }
     }
 
-    Spacer(modifier = Modifier.height(14.dp))
-
-    // Toggle between Written Briefing and 2-Host Podcast Transcript
-    Row(
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
-      modifier = Modifier.fillMaxWidth()
-    ) {
-      FilterChip(
-        selected = selectedSheetTab == 0,
-        onClick = { selectedSheetTab = 0 },
-        label = { Text("📋 Written Briefing") }
-      )
-      FilterChip(
-        selected = selectedSheetTab == 1,
-        onClick = { selectedSheetTab = 1 },
-        label = {
-          Text(
-            if (turns.isNotEmpty()) {
-              "🎙️ 2-Host Transcript (${turns.size} turns)"
-            } else {
-              "🎙️ 2-Host Transcript"
-            }
-          )
-        }
-      )
-    }
-
-    Spacer(modifier = Modifier.height(8.dp))
-
-    if (selectedSheetTab == 0) {
-      Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth()
-      ) {
-        Text(
-          text = digest.summaryMarkdown,
-          style = MaterialTheme.typography.bodyMedium,
-          modifier = Modifier.padding(16.dp)
-        )
-      }
-    } else {
-      if (turns.isEmpty()) {
-        Surface(
-          color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-          shape = RoundedCornerShape(16.dp),
-          modifier = Modifier.fillMaxWidth()
-        ) {
-          Column(
-            modifier = Modifier.padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-          ) {
-            Text(
-              text = if (digest.isGeneratingPodcast) {
-                "Writing the 2-host dialogue script with a narrative red line across your saved links..."
-              } else {
-                "Tap \"Generate & Play\" above to create the 2-host conversation transcript and audio episode."
-              },
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-          }
-        }
-      } else {
-        Column(
-          verticalArrangement = Arrangement.spacedBy(8.dp),
-          modifier = Modifier.fillMaxWidth()
-        ) {
-          turns.forEach { turn ->
-            Surface(
-              color = if (turn.isHostB) {
-                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
-              } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
-              },
-              shape = RoundedCornerShape(14.dp),
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              Column(modifier = Modifier.padding(12.dp)) {
-                Text(
-                  text = turn.speaker,
-                  style = MaterialTheme.typography.labelMedium,
-                  fontWeight = FontWeight.Bold,
-                  color = if (turn.isHostB) {
-                    MaterialTheme.colorScheme.secondary
-                  } else {
-                    MaterialTheme.colorScheme.primary
-                  }
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                  text = turn.text,
-                  style = MaterialTheme.typography.bodyMedium
-                )
-              }
-            }
-          }
-        }
-      }
-    }
-
-    Spacer(modifier = Modifier.height(16.dp))
+    Spacer(modifier = Modifier.height(18.dp))
 
     Text(
-      text = "Sources in this Digest (tap to open in browser)",
+      text = "Sources in this Episode (${digest.sourceWebsites.size})",
       style = MaterialTheme.typography.titleSmall,
       fontWeight = FontWeight.SemiBold
     )
     Spacer(modifier = Modifier.height(8.dp))
 
-    FlowRow(
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Column(
       verticalArrangement = Arrangement.spacedBy(8.dp),
       modifier = Modifier.fillMaxWidth()
     ) {
       digest.sourceWebsites.forEachIndexed { index, source ->
-        AssistChip(
-          onClick = { onOpenSourceUrl(source.url) },
-          leadingIcon = {
+        OutlinedCard(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpenSourceUrl(source.url) },
+          shape = RoundedCornerShape(12.dp)
+        ) {
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+          ) {
             AsyncImage(
               model = source.faviconUrl,
               contentDescription = null,
               modifier = Modifier
                 .size(16.dp)
-                .clip(CircleShape)
+                .clip(RoundedCornerShape(3.dp))
             )
-          },
-          label = {
-            Text(
-              text = "[${index + 1}] ${source.domain}",
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+              Text(
+                text = source.title.ifBlank { source.domain },
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+              )
+              Text(
+                text = "[${index + 1}] ${source.domain}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+              )
+            }
+            Icon(
+              imageVector = Icons.Default.OpenInBrowser,
+              contentDescription = "Open source link",
+              modifier = Modifier.size(16.dp),
+              tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
           }
-        )
+        }
       }
     }
 
@@ -1482,7 +1534,7 @@ private fun CatchMeUpDigestSheetContent(
       ) {
         Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
-        Text("Mark All as Read")
+        Text("Archive Sources")
       }
     }
 
@@ -1490,6 +1542,7 @@ private fun CatchMeUpDigestSheetContent(
   }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DigestsHistoryTab(
   digests: List<DigestEntry>,
@@ -1508,20 +1561,20 @@ private fun DigestsHistoryTab(
       verticalArrangement = Arrangement.Center
     ) {
       Icon(
-        imageVector = Icons.Default.History,
+        imageVector = Icons.Default.Podcasts,
         contentDescription = null,
         modifier = Modifier.size(56.dp),
         tint = MaterialTheme.colorScheme.primary
       )
       Spacer(modifier = Modifier.height(16.dp))
       Text(
-        text = "No Catch Me Up digests yet",
+        text = "No podcast digests yet",
         style = MaterialTheme.typography.headlineSmall,
         fontWeight = FontWeight.Bold
       )
       Spacer(modifier = Modifier.height(8.dp))
       Text(
-        text = "Tap the \"Catch Me Up\" button on the Saved Links tab to generate a combined AI briefing and a 2-host podcast across all your unread websites.",
+        text = "Tap \"Catch Me Up\" on the Saved Links tab (or enable Auto-Podcast After Browsing Session in Settings) to generate a multi-host podcast episode across your saved articles.",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant
       )
@@ -1529,7 +1582,7 @@ private fun DigestsHistoryTab(
       Button(onClick = onGenerateNew) {
         Icon(Icons.Default.Podcasts, contentDescription = null)
         Spacer(Modifier.width(8.dp))
-        Text("Generate Digest & Podcast Now")
+        Text("Generate Podcast Episode Now")
       }
     }
   } else {
@@ -1545,6 +1598,9 @@ private fun DigestsHistoryTab(
         }
         val isPlayingThis =
           playback.isActive && playback.activeDigestId == digest.id && playback.isPlaying
+        val hostsLabel = remember(digest.hostNames, digest.language) {
+          PodcastCastCatalog.formatHostList(digest.hostNames, digest.language)
+        }
 
         ElevatedCard(
           modifier = Modifier
@@ -1559,16 +1615,34 @@ private fun DigestsHistoryTab(
               modifier = Modifier.fillMaxWidth()
             ) {
               Column(modifier = Modifier.weight(1f)) {
-                Text(
-                  text = dateStr,
-                  style = MaterialTheme.typography.titleMedium,
-                  fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  Text(
+                    text = dateStr,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                  )
+                  if (digest.language == PodcastLanguage.SWEDISH) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                      color = MaterialTheme.colorScheme.tertiaryContainer,
+                      shape = CircleShape
+                    ) {
+                      Text(
+                        text = "SV",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                      )
+                    }
+                  }
+                }
                 Text(
                   text = buildString {
-                    append("${digest.sourceWebsites.size} website(s) • ${digest.providerName}")
-                    if (digest.podcastAudioPath != null) {
-                      append(" • 🎧 Cached Offline")
+                    append("🎙️ $hostsLabel • ${digest.sourceWebsites.size} link(s)")
+                    when {
+                      digest.isGeneratingPodcast -> append(" • Generating...")
+                      digest.podcastAudioPath != null -> append(" • Cached Offline")
                     }
                   },
                   style = MaterialTheme.typography.labelMedium,
@@ -1602,14 +1676,47 @@ private fun DigestsHistoryTab(
                 }
               }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-              text = digest.summaryMarkdown,
-              style = MaterialTheme.typography.bodyMedium,
-              maxLines = 4,
-              overflow = TextOverflow.Ellipsis,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+
+            if (digest.sourceWebsites.isNotEmpty()) {
+              Spacer(modifier = Modifier.height(8.dp))
+              FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+              ) {
+                digest.sourceWebsites.take(5).forEach { src ->
+                  AssistChip(
+                    onClick = { onOpenDigest(digest) },
+                    leadingIcon = {
+                      AsyncImage(
+                        model = src.faviconUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                          .size(14.dp)
+                          .clip(RoundedCornerShape(3.dp))
+                      )
+                    },
+                    label = {
+                      Text(
+                        text = src.domain,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1
+                      )
+                    }
+                  )
+                }
+                if (digest.sourceWebsites.size > 5) {
+                  AssistChip(
+                    onClick = { onOpenDigest(digest) },
+                    label = {
+                      Text(
+                        text = "+${digest.sourceWebsites.size - 5} more",
+                        style = MaterialTheme.typography.labelSmall
+                      )
+                    }
+                  )
+                }
+              }
+            }
           }
         }
       }
@@ -1641,11 +1748,11 @@ private fun SettingsTab(
       .padding(16.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp)
   ) {
-    // Summarization & Background Podcast Behavior Card
+    // Summarization & Session Auto-Podcast Behavior Card
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
       Column(modifier = Modifier.padding(16.dp)) {
         Text(
-          text = "Summarization & Podcast Behavior",
+          text = "Summarization & Auto-Podcast Behavior",
           style = MaterialTheme.typography.titleMedium,
           fontWeight = FontWeight.Bold
         )
@@ -1657,12 +1764,12 @@ private fun SettingsTab(
         ) {
           Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
             Text(
-              text = "Auto-summarize in background on save",
+              text = "Auto-summarize text on save",
               style = MaterialTheme.typography.bodyLarge,
               fontWeight = FontWeight.Medium
             )
             Text(
-              text = "Automatically generate the AI text summary right after a link is saved from another app.",
+              text = "Automatically generate the Markdown AI text summary right after a link is saved.",
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1686,28 +1793,142 @@ private fun SettingsTab(
         ) {
           Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
             Text(
-              text = "Auto-generate 2-host podcast on Catch Me Up",
+              text = "Auto-podcast after browsing session",
               style = MaterialTheme.typography.bodyLarge,
               fontWeight = FontWeight.Medium
             )
             Text(
-              text = "Automatically script and synthesize the 2-host podcast episode in the background whenever you generate a Catch Me Up digest.",
+              text = "Waits until you stop saving links (e.g. from Google Feed), groups links saved close in time, silently generates a Catch Me Up podcast, and notifies you with a Play button.",
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant
             )
           }
           Switch(
-            checked = settings.autoGeneratePodcastOnDigest,
+            checked = settings.autoPodcastAfterQuietWindow,
             onCheckedChange = { enabled ->
-              onUpdateSettings { it.copy(autoGeneratePodcastOnDigest = enabled) }
+              onUpdateSettings { it.copy(autoPodcastAfterQuietWindow = enabled) }
             }
           )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-        HorizontalDivider()
+        AnimatedVisibility(visible = settings.autoPodcastAfterQuietWindow) {
+          Column(modifier = Modifier.padding(top = 12.dp)) {
+            var draftQuietMinutes by remember(settings.autoPodcastQuietMinutes) {
+              mutableFloatStateOf(settings.autoPodcastQuietMinutes.coerceIn(1, 10).toFloat())
+            }
+            var draftMinLinks by remember(settings.autoPodcastMinLinks) {
+              mutableFloatStateOf(settings.autoPodcastMinLinks.coerceIn(2, 10).toFloat())
+            }
+
+            Text(
+              text = "Start podcast ${draftQuietMinutes.roundToInt()} min after last saved link",
+              style = MaterialTheme.typography.bodySmall,
+              fontWeight = FontWeight.SemiBold,
+              color = MaterialTheme.colorScheme.primary
+            )
+            Slider(
+              value = draftQuietMinutes,
+              onValueChange = { draftQuietMinutes = it },
+              onValueChangeFinished = {
+                onUpdateSettings {
+                  it.copy(autoPodcastQuietMinutes = draftQuietMinutes.roundToInt().coerceIn(1, 10))
+                }
+              },
+              valueRange = 1f..10f,
+              steps = 8
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+              text = "Minimum links in session burst: ${draftMinLinks.roundToInt()} links",
+              style = MaterialTheme.typography.bodySmall,
+              fontWeight = FontWeight.SemiBold,
+              color = MaterialTheme.colorScheme.primary
+            )
+            Slider(
+              value = draftMinLinks,
+              onValueChange = { draftMinLinks = it },
+              onValueChangeFinished = {
+                onUpdateSettings {
+                  it.copy(autoPodcastMinLinks = draftMinLinks.roundToInt().coerceIn(2, 10))
+                }
+              },
+              valueRange = 2f..10f,
+              steps = 7
+            )
+          }
+        }
+      }
+    }
+
+    // Podcast Hosts, Language & Voice Engine Card
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+      Column(modifier = Modifier.padding(16.dp)) {
+        Text(
+          text = "🎙️ Podcast Hosts, Language & Voices",
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.Bold
+        )
+        Text(
+          text = "Choose podcast language, 2 or 3 hosts, randomized or custom voices, and your TTS engine.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(modifier = Modifier.height(12.dp))
 
+        // Podcast Language (English / Swedish)
+        Text(
+          text = "Podcast Episode Language",
+          style = MaterialTheme.typography.labelLarge,
+          fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          PodcastLanguage.entries.forEach { lang ->
+            FilterChip(
+              selected = settings.podcastLanguage == lang,
+              onClick = { onUpdateSettings { it.copy(podcastLanguage = lang) } },
+              label = { Text(lang.displayName) }
+            )
+          }
+        }
+        if (settings.podcastLanguage == PodcastLanguage.SWEDISH) {
+          Text(
+            text = "All saved articles (even English ones) are translated and discussed in natural Swedish.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary
+          )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Number of Hosts (2 or 3)
+        Text(
+          text = "Number of Podcast Hosts",
+          style = MaterialTheme.typography.labelLarge,
+          fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          listOf(2 to "2 Hosts (Duo)", 3 to "3 Hosts (Roundtable)").forEach { (count, label) ->
+            FilterChip(
+              selected = settings.podcastHostCount.coerceIn(2, 3) == count,
+              onClick = { onUpdateSettings { it.copy(podcastHostCount = count) } },
+              label = { Text(label) }
+            )
+          }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Randomize names & voices toggle
         Row(
           modifier = Modifier.fillMaxWidth(),
           verticalAlignment = Alignment.CenterVertically,
@@ -1715,61 +1936,60 @@ private fun SettingsTab(
         ) {
           Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
             Text(
-              text = "Auto-generate article audio on save",
-              style = MaterialTheme.typography.bodyLarge,
-              fontWeight = FontWeight.Medium
+              text = "Randomize host names & voices each episode",
+              style = MaterialTheme.typography.bodyMedium,
+              fontWeight = FontWeight.SemiBold
             )
             Text(
-              text = "Automatically generate a conversational spoken summary in the background whenever a new link is saved.",
+              text = "Picks contrasting voices and matching ${settings.podcastLanguage.displayName} names automatically for every new episode.",
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant
             )
           }
           Switch(
-            checked = settings.autoGenerateArticlePodcastOnSave,
+            checked = settings.randomizePodcastHosts,
             onCheckedChange = { enabled ->
-              onUpdateSettings { it.copy(autoGenerateArticlePodcastOnSave = enabled) }
+              onUpdateSettings { it.copy(randomizePodcastHosts = enabled) }
             }
           )
         }
-      }
-    }
 
-    // Podcast Voices & TTS Engine Card
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-      Column(modifier = Modifier.padding(16.dp)) {
-        Text(
-          text = "🎙️ Podcast Hosts & Voice Engine",
-          style = MaterialTheme.typography.titleMedium,
-          fontWeight = FontWeight.Bold
-        )
-        Text(
-          text = "Configure the two podcast hosts and choose which TTS voice engine generates your episodes.",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-          OutlinedTextField(
-            value = settings.hostAName,
-            onValueChange = { name -> onUpdateSettings { it.copy(hostAName = name) } },
-            label = { Text("Host 1 Name") },
-            singleLine = true,
-            modifier = Modifier.weight(1f)
-          )
-          OutlinedTextField(
-            value = settings.hostBName,
-            onValueChange = { name -> onUpdateSettings { it.copy(hostBName = name) } },
-            label = { Text("Host 2 Name") },
-            singleLine = true,
-            modifier = Modifier.weight(1f)
-          )
+        AnimatedVisibility(visible = !settings.randomizePodcastHosts) {
+          Column(modifier = Modifier.padding(top = 10.dp)) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+              OutlinedTextField(
+                value = settings.hostAName,
+                onValueChange = { name -> onUpdateSettings { it.copy(hostAName = name) } },
+                label = { Text("Host 1 Name") },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+              )
+              OutlinedTextField(
+                value = settings.hostBName,
+                onValueChange = { name -> onUpdateSettings { it.copy(hostBName = name) } },
+                label = { Text("Host 2 Name") },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+              )
+            }
+            if (settings.podcastHostCount >= 3) {
+              Spacer(modifier = Modifier.height(8.dp))
+              OutlinedTextField(
+                value = settings.hostCName,
+                onValueChange = { name -> onUpdateSettings { it.copy(hostCName = name) } },
+                label = { Text("Host 3 Name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+              )
+            }
+          }
         }
 
+        Spacer(modifier = Modifier.height(12.dp))
+        HorizontalDivider()
         Spacer(modifier = Modifier.height(12.dp))
 
         PodcastTtsProvider.entries.forEach { ttsProvider ->
@@ -1847,10 +2067,13 @@ private fun SettingsTab(
         HorizontalDivider()
         Spacer(modifier = Modifier.height(12.dp))
 
+        val isThreeHosts = settings.podcastHostCount >= 3
+
         when (settings.podcastTtsProvider) {
           PodcastTtsProvider.GEMINI_MULTISPEAKER -> {
             val resolvedVoiceA = GeminiCatalog.resolveValidVoice(settings.geminiHostAVoice, "Puck")
             val resolvedVoiceB = GeminiCatalog.resolveValidVoice(settings.geminiHostBVoice, "Kore")
+            val resolvedVoiceC = GeminiCatalog.resolveValidVoice(settings.geminiHostCVoice, "Aoede")
             val voiceOptions = remember {
               GeminiCatalog.PREBUILT_VOICES.map { it.name to it.displayLabel }
             }
@@ -1863,7 +2086,7 @@ private fun SettingsTab(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-              text = "Uses Google's native multiSpeakerVoiceConfig to generate both hosts conversing together in a single dialogue pass (no per-turn stitching). Choose from all 30 official Gemini studio voices below.",
+              text = "Uses Google's native multiSpeakerVoiceConfig across all 30 official Gemini studio voices in English and Swedish.",
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1891,33 +2114,49 @@ private fun SettingsTab(
               },
               modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-              SettingsDropdownSelector(
-                label = "${settings.hostAName.ifBlank { "Host 1" }} Voice",
-                selectedValue = resolvedVoiceA,
-                selectedDisplay = GeminiCatalog.PREBUILT_VOICES
-                  .firstOrNull { it.name == resolvedVoiceA }?.displayLabel ?: resolvedVoiceA,
-                options = voiceOptions,
-                onSelect = { chosen ->
-                  onUpdateSettings { it.copy(geminiHostAVoice = chosen) }
-                },
-                modifier = Modifier.weight(1f)
-              )
-              SettingsDropdownSelector(
-                label = "${settings.hostBName.ifBlank { "Host 2" }} Voice",
-                selectedValue = resolvedVoiceB,
-                selectedDisplay = GeminiCatalog.PREBUILT_VOICES
-                  .firstOrNull { it.name == resolvedVoiceB }?.displayLabel ?: resolvedVoiceB,
-                options = voiceOptions,
-                onSelect = { chosen ->
-                  onUpdateSettings { it.copy(geminiHostBVoice = chosen) }
-                },
-                modifier = Modifier.weight(1f)
-              )
+            if (!settings.randomizePodcastHosts) {
+              Spacer(modifier = Modifier.height(10.dp))
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+              ) {
+                SettingsDropdownSelector(
+                  label = "${settings.hostAName.ifBlank { "Host 1" }} Voice",
+                  selectedValue = resolvedVoiceA,
+                  selectedDisplay = GeminiCatalog.PREBUILT_VOICES
+                    .firstOrNull { it.name == resolvedVoiceA }?.displayLabel ?: resolvedVoiceA,
+                  options = voiceOptions,
+                  onSelect = { chosen ->
+                    onUpdateSettings { it.copy(geminiHostAVoice = chosen) }
+                  },
+                  modifier = Modifier.weight(1f)
+                )
+                SettingsDropdownSelector(
+                  label = "${settings.hostBName.ifBlank { "Host 2" }} Voice",
+                  selectedValue = resolvedVoiceB,
+                  selectedDisplay = GeminiCatalog.PREBUILT_VOICES
+                    .firstOrNull { it.name == resolvedVoiceB }?.displayLabel ?: resolvedVoiceB,
+                  options = voiceOptions,
+                  onSelect = { chosen ->
+                    onUpdateSettings { it.copy(geminiHostBVoice = chosen) }
+                  },
+                  modifier = Modifier.weight(1f)
+                )
+              }
+              if (isThreeHosts) {
+                Spacer(modifier = Modifier.height(8.dp))
+                SettingsDropdownSelector(
+                  label = "${settings.hostCName.ifBlank { "Host 3" }} Voice",
+                  selectedValue = resolvedVoiceC,
+                  selectedDisplay = GeminiCatalog.PREBUILT_VOICES
+                    .firstOrNull { it.name == resolvedVoiceC }?.displayLabel ?: resolvedVoiceC,
+                  options = voiceOptions,
+                  onSelect = { chosen ->
+                    onUpdateSettings { it.copy(geminiHostCVoice = chosen) }
+                  },
+                  modifier = Modifier.fillMaxWidth()
+                )
+              }
             }
             Spacer(modifier = Modifier.height(10.dp))
             SettingsDropdownSelector(
@@ -1944,7 +2183,7 @@ private fun SettingsTab(
                 if (verification.isVerifyingTts) {
                   CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                   Spacer(Modifier.width(8.dp))
-                  Text("Testing 2-Speaker TTS...")
+                  Text("Testing Multi-Speaker TTS...")
                 } else {
                   Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
                   Spacer(Modifier.width(6.dp))
@@ -1973,7 +2212,7 @@ private fun SettingsTab(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-              text = "Azure Speech F0 tier offers 500,000 free neural characters every month perpetually and supports multi-voice SSML in a single request.",
+              text = "Azure Speech F0 tier offers 500,000 free neural characters every month perpetually and supports multi-voice SSML in English and Swedish.",
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -2006,25 +2245,37 @@ private fun SettingsTab(
               singleLine = true,
               modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-              OutlinedTextField(
-                value = settings.azureHostAVoice,
-                onValueChange = { v -> onUpdateSettings { it.copy(azureHostAVoice = v) } },
-                label = { Text("${settings.hostAName} Neural Voice") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-              )
-              OutlinedTextField(
-                value = settings.azureHostBVoice,
-                onValueChange = { v -> onUpdateSettings { it.copy(azureHostBVoice = v) } },
-                label = { Text("${settings.hostBName} Neural Voice") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-              )
+            if (!settings.randomizePodcastHosts) {
+              Spacer(modifier = Modifier.height(8.dp))
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+              ) {
+                OutlinedTextField(
+                  value = settings.azureHostAVoice,
+                  onValueChange = { v -> onUpdateSettings { it.copy(azureHostAVoice = v) } },
+                  label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Neural Voice") },
+                  singleLine = true,
+                  modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                  value = settings.azureHostBVoice,
+                  onValueChange = { v -> onUpdateSettings { it.copy(azureHostBVoice = v) } },
+                  label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Neural Voice") },
+                  singleLine = true,
+                  modifier = Modifier.weight(1f)
+                )
+              }
+              if (isThreeHosts) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                  value = settings.azureHostCVoice,
+                  onValueChange = { v -> onUpdateSettings { it.copy(azureHostCVoice = v) } },
+                  label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Neural Voice") },
+                  singleLine = true,
+                  modifier = Modifier.fillMaxWidth()
+                )
+              }
             }
           }
 
@@ -2036,7 +2287,7 @@ private fun SettingsTab(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-              text = "Create a free account at elevenlabs.io (~10,000 free credits/month). Uses eleven_flash_v2_5 by default for fast, low-cost multi-voice synthesis.",
+              text = "Create a free account at elevenlabs.io (~10,000 free credits/month). Uses eleven_flash_v2_5 by default for fast multilingual synthesis.",
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -2061,25 +2312,37 @@ private fun SettingsTab(
               },
               modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-              OutlinedTextField(
-                value = settings.elevenLabsHostAVoiceId,
-                onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostAVoiceId = v) } },
-                label = { Text("${settings.hostAName} Voice ID") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-              )
-              OutlinedTextField(
-                value = settings.elevenLabsHostBVoiceId,
-                onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostBVoiceId = v) } },
-                label = { Text("${settings.hostBName} Voice ID") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-              )
+            if (!settings.randomizePodcastHosts) {
+              Spacer(modifier = Modifier.height(8.dp))
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+              ) {
+                OutlinedTextField(
+                  value = settings.elevenLabsHostAVoiceId,
+                  onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostAVoiceId = v) } },
+                  label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Voice ID") },
+                  singleLine = true,
+                  modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                  value = settings.elevenLabsHostBVoiceId,
+                  onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostBVoiceId = v) } },
+                  label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Voice ID") },
+                  singleLine = true,
+                  modifier = Modifier.weight(1f)
+                )
+              }
+              if (isThreeHosts) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                  value = settings.elevenLabsHostCVoiceId,
+                  onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostCVoiceId = v) } },
+                  label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Voice ID") },
+                  singleLine = true,
+                  modifier = Modifier.fillMaxWidth()
+                )
+              }
             }
           }
 
@@ -2091,7 +2354,7 @@ private fun SettingsTab(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-              text = "Supports OpenAI Audio (gpt-4o-mini-tts / tts-1 with voices like onyx, nova, alloy, echo) or free self-hosted Kokoro-FastAPI / Groq endpoints.",
+              text = "Supports OpenAI Audio (gpt-4o-mini-tts / tts-1 with voices like onyx, nova, shimmer) or free self-hosted Kokoro-FastAPI / Groq endpoints.",
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -2134,27 +2397,40 @@ private fun SettingsTab(
               singleLine = true,
               modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-              OutlinedTextField(
-                value = settings.openAiHostAVoice,
-                onValueChange = { v -> onUpdateSettings { it.copy(openAiHostAVoice = v) } },
-                label = { Text("${settings.hostAName} Voice") },
-                placeholder = { Text("onyx") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-              )
-              OutlinedTextField(
-                value = settings.openAiHostBVoice,
-                onValueChange = { v -> onUpdateSettings { it.copy(openAiHostBVoice = v) } },
-                label = { Text("${settings.hostBName} Voice") },
-                placeholder = { Text("nova") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-              )
+            if (!settings.randomizePodcastHosts) {
+              Spacer(modifier = Modifier.height(8.dp))
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+              ) {
+                OutlinedTextField(
+                  value = settings.openAiHostAVoice,
+                  onValueChange = { v -> onUpdateSettings { it.copy(openAiHostAVoice = v) } },
+                  label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Voice") },
+                  placeholder = { Text("onyx") },
+                  singleLine = true,
+                  modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                  value = settings.openAiHostBVoice,
+                  onValueChange = { v -> onUpdateSettings { it.copy(openAiHostBVoice = v) } },
+                  label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Voice") },
+                  placeholder = { Text("nova") },
+                  singleLine = true,
+                  modifier = Modifier.weight(1f)
+                )
+              }
+              if (isThreeHosts) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                  value = settings.openAiHostCVoice,
+                  onValueChange = { v -> onUpdateSettings { it.copy(openAiHostCVoice = v) } },
+                  label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Voice") },
+                  placeholder = { Text("shimmer") },
+                  singleLine = true,
+                  modifier = Modifier.fillMaxWidth()
+                )
+              }
             }
           }
         }
@@ -2165,12 +2441,12 @@ private fun SettingsTab(
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
       Column(modifier = Modifier.padding(16.dp)) {
         Text(
-          text = "AI Summarization Provider",
+          text = "AI Summarization & Scripting Provider",
           style = MaterialTheme.typography.titleMedium,
           fontWeight = FontWeight.Bold
         )
         Text(
-          text = "Choose which AI backend Summer uses to summarize saved websites.",
+          text = "Choose which AI backend Summer uses to summarize saved websites and write podcast scripts.",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -2552,7 +2828,7 @@ private fun AddLinkDialog(
     text = {
       Column {
         Text(
-          text = "Paste a URL to save and scrape its title, favicon, and content:",
+          text = "Paste a URL to save and scrape its title, thumbnail, favicon, and content:",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -2716,7 +2992,7 @@ private fun AndroidOnDeviceTtsSettingsSection(
   )
   Spacer(modifier = Modifier.height(4.dp))
   Text(
-    text = "100% free, unlimited, and works offline without any account or API key. Sub-chunks oversized turns on sentence boundaries and stitches both hosts into a single seekable WAV podcast file.",
+    text = "100% free, unlimited, and works offline without any account or API key. Sub-chunks oversized turns on sentence boundaries and stitches all hosts into a single seekable WAV podcast file.",
     style = MaterialTheme.typography.bodySmall,
     color = MaterialTheme.colorScheme.onSurfaceVariant
   )
@@ -2733,47 +3009,65 @@ private fun AndroidOnDeviceTtsSettingsSection(
         it.copy(
           androidTtsEngine = pkg,
           androidHostAVoice = "",
-          androidHostBVoice = ""
+          androidHostBVoice = "",
+          androidHostCVoice = ""
         )
       }
     },
     modifier = Modifier.fillMaxWidth()
   )
 
-  Spacer(modifier = Modifier.height(10.dp))
+  if (!settings.randomizePodcastHosts) {
+    Spacer(modifier = Modifier.height(10.dp))
 
-  if (voicesLoading) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-      Spacer(Modifier.width(8.dp))
-      Text("Loading installed offline voices...", style = MaterialTheme.typography.bodySmall)
+    if (voicesLoading) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+        Spacer(Modifier.width(8.dp))
+        Text("Loading installed offline voices...", style = MaterialTheme.typography.bodySmall)
+      }
+    } else {
+      SettingsDropdownSelector(
+        label = "${settings.hostAName.ifBlank { "Host 1" }} On-Device Voice",
+        selectedValue = settings.androidHostAVoice,
+        selectedDisplay = voiceDropdownOptions
+          .firstOrNull { it.first == settings.androidHostAVoice }?.second
+          ?: settings.androidHostAVoice.ifBlank { "Auto-select distinct voice" },
+        options = voiceDropdownOptions,
+        onSelect = { chosen ->
+          onUpdateSettings { it.copy(androidHostAVoice = chosen) }
+        },
+        modifier = Modifier.fillMaxWidth()
+      )
+      Spacer(modifier = Modifier.height(8.dp))
+      SettingsDropdownSelector(
+        label = "${settings.hostBName.ifBlank { "Host 2" }} On-Device Voice",
+        selectedValue = settings.androidHostBVoice,
+        selectedDisplay = voiceDropdownOptions
+          .firstOrNull { it.first == settings.androidHostBVoice }?.second
+          ?: settings.androidHostBVoice.ifBlank { "Auto-select distinct voice" },
+        options = voiceDropdownOptions,
+        onSelect = { chosen ->
+          onUpdateSettings { it.copy(androidHostBVoice = chosen) }
+        },
+        modifier = Modifier.fillMaxWidth()
+      )
+      if (settings.podcastHostCount >= 3) {
+        Spacer(modifier = Modifier.height(8.dp))
+        SettingsDropdownSelector(
+          label = "${settings.hostCName.ifBlank { "Host 3" }} On-Device Voice",
+          selectedValue = settings.androidHostCVoice,
+          selectedDisplay = voiceDropdownOptions
+            .firstOrNull { it.first == settings.androidHostCVoice }?.second
+            ?: settings.androidHostCVoice.ifBlank { "Auto-select distinct voice" },
+          options = voiceDropdownOptions,
+          onSelect = { chosen ->
+            onUpdateSettings { it.copy(androidHostCVoice = chosen) }
+          },
+          modifier = Modifier.fillMaxWidth()
+        )
+      }
     }
-  } else {
-    SettingsDropdownSelector(
-      label = "${settings.hostAName.ifBlank { "Host 1" }} On-Device Voice",
-      selectedValue = settings.androidHostAVoice,
-      selectedDisplay = voiceDropdownOptions
-        .firstOrNull { it.first == settings.androidHostAVoice }?.second
-        ?: settings.androidHostAVoice.ifBlank { "Auto-select distinct voice" },
-      options = voiceDropdownOptions,
-      onSelect = { chosen ->
-        onUpdateSettings { it.copy(androidHostAVoice = chosen) }
-      },
-      modifier = Modifier.fillMaxWidth()
-    )
-    Spacer(modifier = Modifier.height(8.dp))
-    SettingsDropdownSelector(
-      label = "${settings.hostBName.ifBlank { "Host 2" }} On-Device Voice",
-      selectedValue = settings.androidHostBVoice,
-      selectedDisplay = voiceDropdownOptions
-        .firstOrNull { it.first == settings.androidHostBVoice }?.second
-        ?: settings.androidHostBVoice.ifBlank { "Auto-select distinct voice" },
-      options = voiceDropdownOptions,
-      onSelect = { chosen ->
-        onUpdateSettings { it.copy(androidHostBVoice = chosen) }
-      },
-      modifier = Modifier.fillMaxWidth()
-    )
   }
 
   Spacer(modifier = Modifier.height(10.dp))

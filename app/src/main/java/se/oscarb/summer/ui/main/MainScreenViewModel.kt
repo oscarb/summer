@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import se.oscarb.summer.data.AppSettings
 import se.oscarb.summer.data.DigestEntry
 import se.oscarb.summer.data.LinkFilter
+import se.oscarb.summer.data.SaveUrlOutcome
 import se.oscarb.summer.data.SavedWebsite
 import se.oscarb.summer.data.SummerRepository
 import se.oscarb.summer.podcast.PodcastPlaybackController
@@ -27,6 +28,12 @@ data class VerificationUiState(
   val backendIsError: Boolean = false
 )
 
+data class PostSaveBannerEvent(
+  val domain: String,
+  val url: String,
+  val wasBumped: Boolean
+)
+
 data class SummerUiState(
   val websites: List<SavedWebsite> = emptyList(),
   val filteredWebsites: List<SavedWebsite> = emptyList(),
@@ -37,6 +44,7 @@ data class SummerUiState(
   val activeDigestSheet: DigestEntry? = null,
   val isGeneratingDigest: Boolean = false,
   val digestError: String? = null,
+  val postSaveEvent: PostSaveBannerEvent? = null,
   val settings: AppSettings = AppSettings(),
   val podcastPlayback: PodcastPlaybackState = PodcastPlaybackState(),
   val verification: VerificationUiState = VerificationUiState()
@@ -51,7 +59,19 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
   private val _expandedIds = MutableStateFlow<Set<String>>(emptySet())
   private val _activeDigestSheet = MutableStateFlow<DigestEntry?>(null)
   private val _digestError = MutableStateFlow<String?>(null)
+  private val _postSaveEvent = MutableStateFlow<PostSaveBannerEvent?>(null)
   private val _verification = MutableStateFlow(VerificationUiState())
+
+  init {
+    viewModelScope.launch {
+      repository.openAndPlayDigestEvents.collect { digestId ->
+        val target = repository.digests.value.firstOrNull { it.id == digestId }
+        if (target != null) {
+          _activeDigestSheet.value = target
+        }
+      }
+    }
+  }
 
   val uiState: StateFlow<SummerUiState> = combine(
     repository.websites,
@@ -63,11 +83,13 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
       _expandedIds,
       _activeDigestSheet,
       _digestError,
-      combine(playbackController.state, _verification) { pb, ver -> pb to ver }
-    ) { filter, expanded, sheet, err, (playback, verification) ->
-      Sextet(filter, expanded, sheet, err, playback, verification)
+      combine(playbackController.state, _verification, _postSaveEvent) { pb, ver, postSave ->
+        Triple(pb, ver, postSave)
+      }
+    ) { filter, expanded, sheet, err, (playback, verification, postSave) ->
+      Septet(filter, expanded, sheet, err, playback, verification, postSave)
     }
-  ) { websites, digests, settings, isGeneratingDigest, (filter, expanded, sheet, err, playback, verification) ->
+  ) { websites, digests, settings, isGeneratingDigest, (filter, expanded, sheet, err, playback, verification, postSave) ->
     val filtered = when (filter) {
       LinkFilter.UNREAD -> websites.filter { !it.isArchived }
       LinkFilter.ALL -> websites
@@ -86,6 +108,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
       activeDigestSheet = liveSheet,
       isGeneratingDigest = isGeneratingDigest,
       digestError = err,
+      postSaveEvent = postSave,
       settings = settings,
       podcastPlayback = playback,
       verification = verification
@@ -118,7 +141,33 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
   }
 
   fun addUrlManually(url: String) {
-    repository.saveOrBumpUrl(url)
+    when (val outcome = repository.saveOrBumpUrl(url)) {
+      is SaveUrlOutcome.SavedNew -> {
+        _postSaveEvent.value = PostSaveBannerEvent(
+          domain = outcome.domain,
+          url = outcome.url.ifBlank { url },
+          wasBumped = false
+        )
+      }
+      is SaveUrlOutcome.BumpedExisting -> {
+        _postSaveEvent.value = PostSaveBannerEvent(
+          domain = outcome.domain,
+          url = outcome.url.ifBlank { url },
+          wasBumped = true
+        )
+      }
+      SaveUrlOutcome.InvalidUrl -> {
+        _digestError.value = "Could not find a valid http/https link."
+      }
+    }
+  }
+
+  fun clearPostSaveEvent() {
+    _postSaveEvent.value = null
+  }
+
+  fun clearPlaybackError() {
+    playbackController.clearPlaybackError()
   }
 
   fun toggleArchive(website: SavedWebsite) {
@@ -140,10 +189,29 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
           _activeDigestSheet.value = digest
         },
         onFailure = { error ->
-          _digestError.value = error.message ?: "Failed to generate Catch Me Up digest."
+          _digestError.value = error.message ?: "Failed to generate Catch Me Up podcast."
         }
       )
     }
+  }
+
+  fun triggerBackgroundPodcastFromBanner() {
+    _postSaveEvent.value = null
+    if (repository.isGeneratingDigest.value) return
+    viewModelScope.launch {
+      val result = repository.generateCatchMeUpDigestForUnread()
+      result.onFailure { error ->
+        _digestError.value = error.message ?: "Failed to start podcast generation."
+      }
+    }
+  }
+
+  fun triggerQuietWindowPodcastNow() {
+    repository.triggerQuietWindowPodcastNow()
+  }
+
+  fun cancelQuietWindowCountdown() {
+    repository.cancelQuietWindowCountdown()
   }
 
   fun openSavedDigest(digest: DigestEntry) {
@@ -232,28 +300,6 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     )
   }
 
-  fun generateDigestPodcastInBackground(digest: DigestEntry) {
-    repository.generatePodcastForDigest(
-      digestId = digest.id,
-      forceRegenerate = true,
-      autoPlayWhenReady = false
-    )
-  }
-
-  fun playOrGenerateWebsitePodcast(website: SavedWebsite, forceRegenerate: Boolean = false) {
-    val pb = playbackController.state.value
-    if (!forceRegenerate && pb.isActive && pb.activeWebsiteId == website.id) {
-      playbackController.togglePlayPause()
-      return
-    }
-    _expandedIds.value = _expandedIds.value + website.id
-    repository.generateOrPlayWebsitePodcast(
-      websiteId = website.id,
-      forceRegenerate = forceRegenerate,
-      autoPlayWhenReady = true
-    )
-  }
-
   fun togglePodcastPlayPause() {
     playbackController.togglePlayPause()
   }
@@ -278,17 +324,16 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
       if (digest != null) {
         _activeDigestSheet.value = digest
       }
-    } else if (pb.activeWebsiteId != null) {
-      _expandedIds.value = _expandedIds.value + pb.activeWebsiteId
     }
   }
 
-  private data class Sextet<A, B, C, D, E, F>(
+  private data class Septet<A, B, C, D, E, F, G>(
     val first: A,
     val second: B,
     val third: C,
     val fourth: D,
     val fifth: E,
-    val sixth: F
+    val sixth: F,
+    val seventh: G
   )
 }
