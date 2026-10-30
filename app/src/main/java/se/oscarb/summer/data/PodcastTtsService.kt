@@ -26,6 +26,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import se.oscarb.summer.util.PodcastScriptParser
 import se.oscarb.summer.util.WavAudioUtils
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Locale
 import java.util.UUID
@@ -36,19 +37,13 @@ import kotlin.coroutines.resumeWithException
 data class PodcastAudioResult(
   val audioFile: File,
   val providerUsed: String,
-  val turnsCount: Int
+  val turnsCount: Int,
+  val hostNames: List<String> = emptyList()
 )
 
 /**
- * Multi-backend Text-to-Speech synthesis engine for generating 2-host podcast episodes
- * and natural spoken article summaries.
- *
- * Supports:
- * 1. Google Gemini Native Multi-Speaker TTS (`gemini-2.5-flash-preview-tts` via Google AI Studio free tier)
- * 2. Android On-Device System Multi-Voice TTS (100% free & offline via `TextToSpeech.synthesizeToFile`)
- * 3. Microsoft Azure AI Speech (500,000 neural chars/month perpetual free tier via multi-voice SSML)
- * 4. ElevenLabs Neural TTS (`pcm_24000` turn-by-turn stitching)
- * 5. OpenAI / Kokoro / Custom `/v1/audio/speech` endpoint
+ * Multi-backend Text-to-Speech synthesis engine for generating 2-host or 3-host podcast episodes
+ * in English or Swedish.
  */
 class PodcastTtsService(private val appContext: Context) {
 
@@ -64,12 +59,16 @@ class PodcastTtsService(private val appContext: Context) {
     rawScript: String,
     outputWavFile: File,
     settings: AppSettings,
+    castOverride: List<AssignedHostVoice>? = null,
+    languageOverride: PodcastLanguage? = null,
     onProgress: (String) -> Unit = {}
   ): Result<PodcastAudioResult> = withContext(Dispatchers.IO) {
-    val hostA = settings.hostAName.trim().ifBlank { "Alex" }
-    val hostB = settings.hostBName.trim().ifBlank { "Sam" }
-    val turns = PodcastScriptParser.parseTurns(rawScript, hostA, hostB)
+    val cast = (castOverride ?: PodcastCastCatalog.selectEpisodeCast(settings))
+      .ifEmpty { PodcastCastCatalog.selectEpisodeCast(settings) }
+    val language = languageOverride ?: settings.podcastLanguage
+    val hostNames = cast.map { it.name }
 
+    val turns = PodcastScriptParser.parseTurns(rawScript, hostNames)
     if (turns.isEmpty()) {
       return@withContext Result.failure(IllegalArgumentException("Podcast script is empty."))
     }
@@ -79,42 +78,43 @@ class PodcastTtsService(private val appContext: Context) {
     try {
       val result = when (settings.podcastTtsProvider) {
         PodcastTtsProvider.GEMINI_MULTISPEAKER -> {
-          onProgress("Synthesizing 2-host audio with Gemini Multi-Speaker TTS...")
-          synthesizeWithGeminiMultiSpeaker(turns, outputWavFile, settings, onProgress)
+          onProgress("Synthesizing ${cast.size}-host audio with Gemini TTS...")
+          synthesizeWithGeminiMultiSpeaker(turns, cast, language, outputWavFile, settings, onProgress)
         }
         PodcastTtsProvider.ANDROID_ON_DEVICE -> {
-          onProgress("Synthesizing 2-host audio on-device...")
-          synthesizeWithAndroidOnDeviceTts(turns, outputWavFile, settings, onProgress)
+          onProgress("Synthesizing ${cast.size}-host audio on-device...")
+          synthesizeWithAndroidOnDeviceTts(turns, cast, language, outputWavFile, settings, onProgress)
         }
         PodcastTtsProvider.AZURE_SPEECH -> {
-          onProgress("Synthesizing 2-host SSML audio via Azure AI Speech...")
-          synthesizeWithAzureSpeech(turns, outputWavFile, settings)
+          onProgress("Synthesizing ${cast.size}-host SSML audio via Azure AI Speech...")
+          synthesizeWithAzureSpeech(turns, cast, language, outputWavFile, settings)
         }
         PodcastTtsProvider.ELEVENLABS -> {
-          onProgress("Synthesizing 2-host voices via ElevenLabs...")
-          synthesizeWithElevenLabs(turns, outputWavFile, settings, onProgress)
+          onProgress("Synthesizing ${cast.size}-host voices via ElevenLabs...")
+          synthesizeWithElevenLabs(turns, cast, outputWavFile, settings, onProgress)
         }
         PodcastTtsProvider.OPENAI_COMPATIBLE_TTS -> {
-          onProgress("Synthesizing 2-host audio via OpenAI / Custom TTS...")
-          synthesizeWithOpenAiCompatibleTts(turns, outputWavFile, settings, onProgress)
+          onProgress("Synthesizing ${cast.size}-host audio via OpenAI / Custom TTS...")
+          synthesizeWithOpenAiCompatibleTts(turns, cast, outputWavFile, settings, onProgress)
         }
       }
-      Result.success(result)
+      Result.success(result.copy(hostNames = hostNames))
     } catch (ce: CancellationException) {
       throw ce
     } catch (primaryError: Exception) {
       if (settings.fallbackToOnDeviceTts && settings.podcastTtsProvider != PodcastTtsProvider.ANDROID_ON_DEVICE) {
         try {
-          onProgress("Cloud TTS unavailable (${primaryError.message?.take(60)}); falling back to On-Device Multi-Voice TTS...")
-          val fallbackResult = synthesizeWithAndroidOnDeviceTts(turns, outputWavFile, settings, onProgress)
+          onProgress("Cloud TTS unavailable (${primaryError.message?.take(60)}); falling back to On-Device TTS...")
+          val fallbackResult = synthesizeWithAndroidOnDeviceTts(turns, cast, language, outputWavFile, settings, onProgress)
           Result.success(
             fallbackResult.copy(
-              providerUsed = "${PodcastTtsProvider.ANDROID_ON_DEVICE.displayName} (Auto-Fallback)"
+              providerUsed = "${PodcastTtsProvider.ANDROID_ON_DEVICE.displayName} (Auto-Fallback)",
+              hostNames = hostNames
             )
           )
         } catch (ce: CancellationException) {
           throw ce
-        } catch (fallbackError: Exception) {
+        } catch (_: Exception) {
           Result.failure(primaryError)
         }
       } else {
@@ -123,10 +123,6 @@ class PodcastTtsService(private val appContext: Context) {
     }
   }
 
-  /**
-   * Verifies that the configured Google AI Studio key and Gemini TTS model support
-   * native 2-speaker `multiSpeakerVoiceConfig` audio generation.
-   */
   suspend fun verifyGeminiTtsAccess(settings: AppSettings): Result<String> = withContext(Dispatchers.IO) {
     try {
       val apiKey = settings.directGeminiApiKey.trim()
@@ -137,12 +133,12 @@ class PodcastTtsService(private val appContext: Context) {
       }
 
       val model = settings.geminiTtsModel.trim().ifBlank { "gemini-3.8-flash-tts" }
-      val hostA = settings.hostAName.trim().ifBlank { "Alex" }
-      val hostB = settings.hostBName.trim().ifBlank { "Sam" }
-      val voiceA = GeminiCatalog.resolveValidVoice(settings.geminiHostAVoice, "Puck")
-      val voiceB = GeminiCatalog.resolveValidVoice(settings.geminiHostBVoice, "Kore")
+      val cast = PodcastCastCatalog.selectEpisodeCast(settings).take(2)
+      val hostA = cast.getOrNull(0)?.name ?: "Alex"
+      val hostB = cast.getOrNull(1)?.name ?: "Sam"
+      val voiceA = GeminiCatalog.resolveValidVoice(cast.getOrNull(0)?.voiceId ?: settings.geminiHostAVoice, "Puck")
+      val voiceB = GeminiCatalog.resolveValidVoice(cast.getOrNull(1)?.voiceId ?: settings.geminiHostBVoice, "Kore")
 
-      // 1. Query /v1beta/models to list TTS models enabled on this key
       val availableTtsModels = runCatching {
         val listReq = Request.Builder()
           .url("https://generativelanguage.googleapis.com/v1beta/models")
@@ -160,19 +156,27 @@ class PodcastTtsService(private val appContext: Context) {
         }
       }.getOrDefault(emptyList())
 
-      // 2. Run a tiny live 2-speaker multiSpeakerVoiceConfig test call
-      val testTurns = listOf(
-        DialogueTurn(speaker = hostA, isHostB = false, text = "Hey $hostB!"),
-        DialogueTurn(speaker = hostB, isHostB = true, text = "Ready to go!")
-      )
-      val (pcmBytes, sampleRate) = requestGeminiMultiSpeakerBatch(
+      val testTurns = if (settings.podcastLanguage == PodcastLanguage.SWEDISH) {
+        listOf(
+          DialogueTurn(speaker = hostA, hostIndex = 0, text = "Hej $hostB!"),
+          DialogueTurn(speaker = hostB, hostIndex = 1, text = "Redo att köra!")
+        )
+      } else {
+        listOf(
+          DialogueTurn(speaker = hostA, hostIndex = 0, text = "Hey $hostB!"),
+          DialogueTurn(speaker = hostB, hostIndex = 1, text = "Ready to go!")
+        )
+      }
+
+      val segment = requestGeminiSceneBatch(
         batchTurns = testTurns,
+        cast = listOf(
+          AssignedHostVoice(0, hostA, voiceA),
+          AssignedHostVoice(1, hostB, voiceB)
+        ),
+        language = settings.podcastLanguage,
         model = model,
-        apiKey = apiKey,
-        hostA = hostA,
-        hostB = hostB,
-        voiceA = voiceA,
-        voiceB = voiceB
+        apiKey = apiKey
       )
 
       val modelsNote = if (availableTtsModels.isNotEmpty()) {
@@ -182,7 +186,7 @@ class PodcastTtsService(private val appContext: Context) {
       }
 
       Result.success(
-        "Verified $model! Generated native 2-speaker audio (${pcmBytes.size / 1024} KB at ${sampleRate} Hz) using voices $voiceA & $voiceB.$modelsNote"
+        "Verified $model! Generated native multi-speaker audio (${segment.pcmBytes.size / 1024} KB at ${segment.sampleRate} Hz) using voices $voiceA & $voiceB.$modelsNote"
       )
     } catch (ce: CancellationException) {
       throw ce
@@ -193,6 +197,8 @@ class PodcastTtsService(private val appContext: Context) {
 
   private fun synthesizeWithGeminiMultiSpeaker(
     turns: List<DialogueTurn>,
+    cast: List<AssignedHostVoice>,
+    language: PodcastLanguage,
     outputWavFile: File,
     settings: AppSettings,
     onProgress: (String) -> Unit
@@ -205,124 +211,140 @@ class PodcastTtsService(private val appContext: Context) {
     }
 
     val model = settings.geminiTtsModel.trim().ifBlank { "gemini-3.8-flash-tts" }
-    val hostA = settings.hostAName.trim().ifBlank { "Alex" }
-    val hostB = settings.hostBName.trim().ifBlank { "Sam" }
-    val voiceA = GeminiCatalog.resolveValidVoice(settings.geminiHostAVoice, "Puck")
-    val voiceB = GeminiCatalog.resolveValidVoice(settings.geminiHostBVoice, "Kore")
+    val normalizedCast = cast.mapIndexed { idx, h ->
+      val fallback = when (idx) {
+        0 -> "Puck"
+        1 -> "Kore"
+        else -> "Aoede"
+      }
+      h.copy(voiceId = GeminiCatalog.resolveValidVoice(h.voiceId, fallback))
+    }
 
-    // Gemini multiSpeakerVoiceConfig synthesizes both hosts together natively in one pass.
-    // Its dialogue prompt payload limit is ~4,000 bytes, so normal articles & digests run in
-    // 1 single native pass, while extra-long digests batch turns into <= 3,400-byte multi-speaker scenes.
-    val batches = groupTurnsIntoMultiSpeakerBatches(turns, hostA, hostB, maxUtf8Bytes = 3_400)
+    // Gemini multiSpeakerVoiceConfig supports at most 2 distinct speakers per API call and ~4,000 UTF-8 bytes.
+    // Grouping turns into maximal <=2-speaker scenes (<=3,400 bytes) handles both 2-host episodes (1 single pass)
+    // and 3-host episodes (seamless multi-speaker scene batching + WAV stitching)!
+    val batches = groupTurnsIntoGeminiBatches(turns, normalizedCast, maxUtf8Bytes = 3_400)
 
-    if (batches.size == 1) {
-      val (rawBytes, sampleRate) = requestGeminiMultiSpeakerBatch(
-        batchTurns = batches[0],
+    val segments = mutableListOf<WavAudioUtils.WavFormatData>()
+    batches.forEachIndexed { batchIndex, batchTurns ->
+      if (batches.size > 1) {
+        onProgress("Gemini TTS ($model): Synthesizing dialogue scene ${batchIndex + 1}/${batches.size}...")
+      }
+      val segment = requestGeminiSceneBatch(
+        batchTurns = batchTurns,
+        cast = normalizedCast,
+        language = language,
         model = model,
-        apiKey = apiKey,
-        hostA = hostA,
-        hostB = hostB,
-        voiceA = voiceA,
-        voiceB = voiceB
+        apiKey = apiKey
       )
-      val wavBytes = WavAudioUtils.ensureWavHeader(
-        pcmOrWavBytes = rawBytes,
-        sampleRate = sampleRate,
-        channels = 1,
-        bitsPerSample = 16
+      if (segment.pcmBytes.isNotEmpty()) {
+        segments.add(segment)
+      }
+    }
+
+    if (segments.size == 1) {
+      val only = segments[0]
+      val wavBytes = WavAudioUtils.wrapPcmInWav(
+        pcmBytes = only.pcmBytes,
+        sampleRate = only.sampleRate,
+        channels = only.channels,
+        bitsPerSample = only.bitsPerSample
       )
       WavAudioUtils.writeBytesAtomically(outputWavFile, wavBytes)
     } else {
-      val segments = mutableListOf<WavAudioUtils.WavFormatData>()
-      batches.forEachIndexed { batchIndex, batchTurns ->
-        onProgress("Gemini Multi-Speaker TTS ($model): Synthesizing dialogue scene ${batchIndex + 1}/${batches.size}...")
-        val (rawBytes, sampleRate) = requestGeminiMultiSpeakerBatch(
-          batchTurns = batchTurns,
-          model = model,
-          apiKey = apiKey,
-          hostA = hostA,
-          hostB = hostB,
-          voiceA = voiceA,
-          voiceB = voiceB
-        )
-        val segment = if (WavAudioUtils.isRiffWave(rawBytes)) {
-          WavAudioUtils.parseWav(rawBytes)
-        } else {
-          WavAudioUtils.WavFormatData(
-            sampleRate = sampleRate,
-            channels = 1,
-            bitsPerSample = 16,
-            pcmBytes = rawBytes
-          )
-        }
-        if (segment.pcmBytes.isNotEmpty()) {
-          segments.add(segment)
-        }
-      }
       WavAudioUtils.stitchFormatSegmentsToWavFile(
         segments = segments,
         outputFile = outputWavFile,
-        pauseMs = 240
+        pauseMs = 200
       )
     }
 
+    val voicesLabel = normalizedCast.joinToString(", ") { it.voiceId }
     return PodcastAudioResult(
       audioFile = outputWavFile,
-      providerUsed = "$model ($voiceA & $voiceB)",
+      providerUsed = "$model ($voicesLabel)",
       turnsCount = turns.size
     )
   }
 
-  private fun groupTurnsIntoMultiSpeakerBatches(
-    turns: List<DialogueTurn>,
-    hostA: String,
-    hostB: String,
-    maxUtf8Bytes: Int
-  ): List<List<DialogueTurn>> {
-    if (turns.isEmpty()) return emptyList()
-    val batches = mutableListOf<List<DialogueTurn>>()
-    var currentBatch = mutableListOf<DialogueTurn>()
-    var currentBytes = 0
+  companion object {
+    /**
+     * Groups consecutive turns so that each batch contains at most 2 distinct [DialogueTurn.hostIndex]
+     * speakers (matching Gemini's 2-speaker `multiSpeakerVoiceConfig` requirement) and stays under [maxUtf8Bytes].
+     */
+    internal fun groupTurnsIntoGeminiBatches(
+      turns: List<DialogueTurn>,
+      cast: List<AssignedHostVoice>,
+      maxUtf8Bytes: Int = 3_400
+    ): List<List<DialogueTurn>> {
+      if (turns.isEmpty()) return emptyList()
+      val batches = mutableListOf<List<DialogueTurn>>()
+      var currentBatch = mutableListOf<DialogueTurn>()
+      val distinctHosts = mutableSetOf<Int>()
+      var currentBytes = 0
 
-    for (turn in turns) {
-      val speaker = if (turn.isHostB) hostB else hostA
-      val lineBytes = "$speaker: ${turn.text}\n".toByteArray(Charsets.UTF_8).size
-      if (currentBatch.isNotEmpty() && currentBytes + lineBytes > maxUtf8Bytes) {
-        batches.add(currentBatch)
-        currentBatch = mutableListOf()
-        currentBytes = 0
+      for (turn in turns) {
+        val hostIdx = turn.hostIndex.coerceIn(0, (cast.size - 1).coerceAtLeast(0))
+        val speakerName = cast.getOrNull(hostIdx)?.name ?: turn.speaker
+        val lineBytes = "$speakerName: ${turn.text}\n".toByteArray(Charsets.UTF_8).size
+        val wouldExceedTwoSpeakers = hostIdx !in distinctHosts && distinctHosts.size >= 2
+        val wouldExceedBytes = currentBatch.isNotEmpty() && currentBytes + lineBytes > maxUtf8Bytes
+
+        if (currentBatch.isNotEmpty() && (wouldExceedTwoSpeakers || wouldExceedBytes)) {
+          batches.add(currentBatch)
+          currentBatch = mutableListOf()
+          distinctHosts.clear()
+          currentBytes = 0
+        }
+
+        currentBatch.add(turn.copy(hostIndex = hostIdx, speaker = speakerName))
+        distinctHosts.add(hostIdx)
+        currentBytes += lineBytes
       }
-      currentBatch.add(turn)
-      currentBytes += lineBytes
+
+      if (currentBatch.isNotEmpty()) {
+        batches.add(currentBatch)
+      }
+      return batches
     }
-    if (currentBatch.isNotEmpty()) {
-      batches.add(currentBatch)
-    }
-    return batches
   }
 
-  private fun requestGeminiMultiSpeakerBatch(
+  private fun requestGeminiSceneBatch(
     batchTurns: List<DialogueTurn>,
+    cast: List<AssignedHostVoice>,
+    language: PodcastLanguage,
     model: String,
-    apiKey: String,
-    hostA: String,
-    hostB: String,
-    voiceA: String,
-    voiceB: String
-  ): Pair<ByteArray, Int> {
+    apiKey: String
+  ): WavAudioUtils.WavFormatData {
+    val activeHostIndices = batchTurns.map { it.hostIndex }.distinct()
+
+    // If a scene batch only has 1 speaker, use single-speaker voiceConfig directly
+    if (activeHostIndices.size == 1) {
+      val speakerHost = cast.getOrElse(activeHostIndices[0]) { cast[0] }
+      return executeGeminiSingleSpeakerHttpCall(
+        batchTurns = batchTurns,
+        host = speakerHost,
+        language = language,
+        model = model,
+        apiKey = apiKey
+      )
+    }
+
+    val host0 = cast.getOrElse(activeHostIndices[0]) { cast[0] }
+    val host1 = cast.getOrElse(activeHostIndices[1]) { cast.getOrElse(1) { cast[0] } }
+
     val defaultUseSpeechMetadata =
       !model.startsWith("gemini-2.", ignoreCase = true) &&
         !model.startsWith("gemini-3.1", ignoreCase = true)
 
     return try {
-      executeGeminiMultiSpeakerHttpCall(
+      executeGeminiTwoSpeakerHttpCall(
         batchTurns = batchTurns,
+        hostA = host0,
+        hostB = host1,
+        language = language,
         model = model,
         apiKey = apiKey,
-        hostA = hostA,
-        hostB = hostB,
-        voiceA = voiceA,
-        voiceB = voiceB,
         usePerPartSpeechMetadata = defaultUseSpeechMetadata
       )
     } catch (e: IllegalStateException) {
@@ -330,14 +352,13 @@ class PodcastTtsService(private val appContext: Context) {
       val needsSpeechMetadata = !defaultUseSpeechMetadata && msg.contains("speech_metadata", ignoreCase = true)
       val forbidsSpeechMetadata = defaultUseSpeechMetadata && msg.contains("Speech metadata is not supported", ignoreCase = true)
       if (needsSpeechMetadata || forbidsSpeechMetadata) {
-        executeGeminiMultiSpeakerHttpCall(
+        executeGeminiTwoSpeakerHttpCall(
           batchTurns = batchTurns,
+          hostA = host0,
+          hostB = host1,
+          language = language,
           model = model,
           apiKey = apiKey,
-          hostA = hostA,
-          hostB = hostB,
-          voiceA = voiceA,
-          voiceB = voiceB,
           usePerPartSpeechMetadata = !defaultUseSpeechMetadata
         )
       } else {
@@ -346,16 +367,58 @@ class PodcastTtsService(private val appContext: Context) {
     }
   }
 
-  private fun executeGeminiMultiSpeakerHttpCall(
+  private fun executeGeminiSingleSpeakerHttpCall(
     batchTurns: List<DialogueTurn>,
+    host: AssignedHostVoice,
+    language: PodcastLanguage,
+    model: String,
+    apiKey: String
+  ): WavAudioUtils.WavFormatData {
+    val endpoint =
+      "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
+    val combinedText = batchTurns.joinToString(" ") { it.text }
+    val spokenPrompt = if (model.startsWith("gemini-2.", ignoreCase = true) && language == PodcastLanguage.SWEDISH) {
+      "Läs upp följande naturligt på svenska som poddvärden ${host.name}:\n\n$combinedText"
+    } else {
+      combinedText
+    }
+
+    val requestPayload = buildJsonObject {
+      put("contents", buildJsonArray {
+        add(buildJsonObject {
+          put("parts", buildJsonArray {
+            add(buildJsonObject {
+              put("text", JsonPrimitive(spokenPrompt))
+            })
+          })
+        })
+      })
+      put("generationConfig", buildJsonObject {
+        put("responseModalities", buildJsonArray {
+          add(JsonPrimitive("AUDIO"))
+        })
+        put("speechConfig", buildJsonObject {
+          put("voiceConfig", buildJsonObject {
+            put("prebuiltVoiceConfig", buildJsonObject {
+              put("voiceName", JsonPrimitive(host.voiceId))
+            })
+          })
+        })
+      })
+    }.toString()
+
+    return executeAndExtractGeminiAudio(endpoint, apiKey, model, requestPayload)
+  }
+
+  private fun executeGeminiTwoSpeakerHttpCall(
+    batchTurns: List<DialogueTurn>,
+    hostA: AssignedHostVoice,
+    hostB: AssignedHostVoice,
+    language: PodcastLanguage,
     model: String,
     apiKey: String,
-    hostA: String,
-    hostB: String,
-    voiceA: String,
-    voiceB: String,
     usePerPartSpeechMetadata: Boolean
-  ): Pair<ByteArray, Int> {
+  ): WavAudioUtils.WavFormatData {
     val endpoint =
       "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
 
@@ -364,9 +427,8 @@ class PodcastTtsService(private val appContext: Context) {
         add(buildJsonObject {
           put("parts", buildJsonArray {
             if (usePerPartSpeechMetadata) {
-              // Gemini 3.8+ TTS multi-speaker format: one part per dialogue turn with speech_metadata.speaker
               batchTurns.forEach { turn ->
-                val speakerName = if (turn.isHostB) hostB else hostA
+                val speakerName = if (turn.hostIndex == hostB.hostIndex) hostB.name else hostA.name
                 add(buildJsonObject {
                   put("text", JsonPrimitive(turn.text))
                   put("speech_metadata", buildJsonObject {
@@ -375,14 +437,22 @@ class PodcastTtsService(private val appContext: Context) {
                 })
               }
             } else {
-              // Gemini 2.5 / 3.1 TTS multi-speaker format: single formatted dialogue block
-              val formattedDialogue =
-                PodcastScriptParser.formatForGeminiMultiSpeaker(batchTurns, hostA, hostB)
-              val ttsPrompt = """
-                Read the following podcast conversation between $hostA and $hostB naturally, with warm, engaging podcast energy and smooth conversational transitions:
-                
-                $formattedDialogue
-              """.trimIndent()
+              val formattedDialogue = batchTurns.joinToString("\n") { turn ->
+                val speakerName = if (turn.hostIndex == hostB.hostIndex) hostB.name else hostA.name
+                "$speakerName: ${turn.text}"
+              }
+              val ttsPrompt = when (language) {
+                PodcastLanguage.SWEDISH -> """
+                  Läs upp följande poddsamtal på naturlig svenska mellan ${hostA.name} och ${hostB.name} med varm, engagerande energi och mjuka övergångar:
+                  
+                  $formattedDialogue
+                """.trimIndent()
+                PodcastLanguage.ENGLISH -> """
+                  Read the following podcast conversation between ${hostA.name} and ${hostB.name} naturally, with warm, engaging podcast energy and smooth conversational transitions:
+                  
+                  $formattedDialogue
+                """.trimIndent()
+              }
               add(buildJsonObject {
                 put("text", JsonPrimitive(ttsPrompt))
               })
@@ -398,18 +468,18 @@ class PodcastTtsService(private val appContext: Context) {
           put("multiSpeakerVoiceConfig", buildJsonObject {
             put("speakerVoiceConfigs", buildJsonArray {
               add(buildJsonObject {
-                put("speaker", JsonPrimitive(hostA))
+                put("speaker", JsonPrimitive(hostA.name))
                 put("voiceConfig", buildJsonObject {
                   put("prebuiltVoiceConfig", buildJsonObject {
-                    put("voiceName", JsonPrimitive(voiceA))
+                    put("voiceName", JsonPrimitive(hostA.voiceId))
                   })
                 })
               })
               add(buildJsonObject {
-                put("speaker", JsonPrimitive(hostB))
+                put("speaker", JsonPrimitive(hostB.name))
                 put("voiceConfig", buildJsonObject {
                   put("prebuiltVoiceConfig", buildJsonObject {
-                    put("voiceName", JsonPrimitive(voiceB))
+                    put("voiceName", JsonPrimitive(hostB.voiceId))
                   })
                 })
               })
@@ -419,6 +489,15 @@ class PodcastTtsService(private val appContext: Context) {
       })
     }.toString()
 
+    return executeAndExtractGeminiAudio(endpoint, apiKey, model, requestPayload)
+  }
+
+  private fun executeAndExtractGeminiAudio(
+    endpoint: String,
+    apiKey: String,
+    model: String,
+    requestPayload: String
+  ): WavAudioUtils.WavFormatData {
     val request = Request.Builder()
       .url(endpoint)
       .header("x-goog-api-key", apiKey)
@@ -436,27 +515,55 @@ class PodcastTtsService(private val appContext: Context) {
       val firstCandidate = candidates?.firstOrNull()?.jsonObject
       val parts = firstCandidate?.get("content")?.jsonObject?.get("parts")?.jsonArray
 
-      val inlineData = parts
+      val inlineObjects = parts
         ?.mapNotNull { it.jsonObject["inlineData"]?.jsonObject }
-        ?.firstOrNull()
-        ?: throw IllegalStateException("Gemini TTS response did not contain audio inlineData.")
-
-      val base64Audio = inlineData["data"]?.jsonPrimitive?.content
-        ?: throw IllegalStateException("Gemini TTS inlineData.data was empty.")
-      val mimeType = inlineData["mimeType"]?.jsonPrimitive?.content
-
-      val rawBytes = Base64.decode(base64Audio, Base64.DEFAULT)
-      val sampleRate = if (WavAudioUtils.isRiffWave(rawBytes)) {
-        WavAudioUtils.parseWav(rawBytes).sampleRate
-      } else {
-        WavAudioUtils.extractSampleRateFromMimeType(mimeType, defaultRate = 24_000)
+        .orEmpty()
+      if (inlineObjects.isEmpty()) {
+        throw IllegalStateException("Gemini TTS response did not contain audio inlineData.")
       }
-      return rawBytes to sampleRate
+
+      var detectedSampleRate = 24_000
+      val combinedPcm = ByteArrayOutputStream()
+
+      for (inlineData in inlineObjects) {
+        val base64Audio = inlineData["data"]?.jsonPrimitive?.content ?: continue
+        if (base64Audio.isBlank()) continue
+        val mimeType = inlineData["mimeType"]?.jsonPrimitive?.content
+        val rawBytes = Base64.decode(base64Audio, Base64.DEFAULT)
+        if (rawBytes.isEmpty()) continue
+
+        if (WavAudioUtils.isRiffWave(rawBytes)) {
+          val parsed = WavAudioUtils.parseWav(rawBytes)
+          detectedSampleRate = parsed.sampleRate
+          val mono16 = WavAudioUtils.normalizeToMono16Pcm(parsed, detectedSampleRate)
+          combinedPcm.write(mono16)
+        } else {
+          detectedSampleRate = WavAudioUtils.extractSampleRateFromMimeType(mimeType, defaultRate = 24_000)
+          val alignedLen = (rawBytes.size / 2) * 2
+          if (alignedLen > 0) {
+            combinedPcm.write(rawBytes, 0, alignedLen)
+          }
+        }
+      }
+
+      val finalPcm = combinedPcm.toByteArray()
+      if (finalPcm.isEmpty()) {
+        throw IllegalStateException("Gemini TTS returned empty decoded audio payload.")
+      }
+
+      return WavAudioUtils.WavFormatData(
+        sampleRate = detectedSampleRate,
+        channels = 1,
+        bitsPerSample = 16,
+        pcmBytes = finalPcm
+      )
     }
   }
 
   private fun synthesizeWithAzureSpeech(
     turns: List<DialogueTurn>,
+    cast: List<AssignedHostVoice>,
+    language: PodcastLanguage,
     outputWavFile: File,
     settings: AppSettings
   ): PodcastAudioResult {
@@ -466,9 +573,28 @@ class PodcastTtsService(private val appContext: Context) {
       throw IllegalStateException("Azure Speech key is missing. Add your free Azure Speech key in Settings.")
     }
 
-    val voiceA = settings.azureHostAVoice.trim().ifBlank { "en-US-AndrewMultilingualNeural" }
-    val voiceB = settings.azureHostBVoice.trim().ifBlank { "en-US-AvaMultilingualNeural" }
-    val ssml = PodcastScriptParser.formatAsAzureMultiVoiceSsml(turns, voiceA, voiceB)
+    val voices = cast.mapIndexed { idx, h ->
+      h.voiceId.ifBlank {
+        if (language == PodcastLanguage.SWEDISH) {
+          when (idx) {
+            0 -> "sv-SE-SofieNeural"
+            1 -> "sv-SE-MattiasNeural"
+            else -> "sv-SE-HilleviNeural"
+          }
+        } else {
+          when (idx) {
+            0 -> "en-US-AndrewMultilingualNeural"
+            1 -> "en-US-AvaMultilingualNeural"
+            else -> "en-US-EmmaMultilingualNeural"
+          }
+        }
+      }
+    }
+    val ssml = PodcastScriptParser.formatAsAzureMultiVoiceSsml(
+      turns = turns,
+      hostVoices = voices,
+      xmlLang = language.bcp47Tag
+    )
 
     val endpoint = "https://$region.tts.speech.microsoft.com/cognitiveservices/v1"
     val request = Request.Builder()
@@ -490,7 +616,7 @@ class PodcastTtsService(private val appContext: Context) {
       WavAudioUtils.writeBytesAtomically(outputWavFile, wavBytes)
       return PodcastAudioResult(
         audioFile = outputWavFile,
-        providerUsed = "Azure Neural TTS ($voiceA & $voiceB)",
+        providerUsed = "Azure Neural TTS (${voices.joinToString(", ")})",
         turnsCount = turns.size
       )
     }
@@ -498,6 +624,7 @@ class PodcastTtsService(private val appContext: Context) {
 
   private fun synthesizeWithElevenLabs(
     turns: List<DialogueTurn>,
+    cast: List<AssignedHostVoice>,
     outputWavFile: File,
     settings: AppSettings,
     onProgress: (String) -> Unit
@@ -508,13 +635,20 @@ class PodcastTtsService(private val appContext: Context) {
     }
 
     val modelId = settings.elevenLabsModel.trim().ifBlank { "eleven_flash_v2_5" }
-    val voiceA = settings.elevenLabsHostAVoiceId.trim().ifBlank { "pNInz6obpgDQGcFmaJgB" }
-    val voiceB = settings.elevenLabsHostBVoiceId.trim().ifBlank { "21m00Tcm4TlvDq8ikWAM" }
+    val voices = cast.mapIndexed { idx, h ->
+      h.voiceId.ifBlank {
+        when (idx) {
+          0 -> "pNInz6obpgDQGcFmaJgB"
+          1 -> "21m00Tcm4TlvDq8ikWAM"
+          else -> "EXAVITQu4vr4xnSDxMaL"
+        }
+      }
+    }
 
     val pcmChunks = mutableListOf<ByteArray>()
     turns.forEachIndexed { index, turn ->
       onProgress("ElevenLabs: Synthesizing turn ${index + 1}/${turns.size} (${turn.speaker})...")
-      val voiceId = if (turn.isHostB) voiceB else voiceA
+      val voiceId = voices.getOrElse(turn.hostIndex) { voices[0] }
       val endpoint = "https://api.elevenlabs.io/v1/text-to-speech/$voiceId?output_format=pcm_24000"
       val payload = buildJsonObject {
         put("text", JsonPrimitive(turn.text))
@@ -546,7 +680,7 @@ class PodcastTtsService(private val appContext: Context) {
       sampleRate = 24_000,
       channels = 1,
       bitsPerSample = 16,
-      pauseMs = 260
+      pauseMs = 240
     )
 
     return PodcastAudioResult(
@@ -558,6 +692,7 @@ class PodcastTtsService(private val appContext: Context) {
 
   private fun synthesizeWithOpenAiCompatibleTts(
     turns: List<DialogueTurn>,
+    cast: List<AssignedHostVoice>,
     outputWavFile: File,
     settings: AppSettings,
     onProgress: (String) -> Unit
@@ -572,8 +707,15 @@ class PodcastTtsService(private val appContext: Context) {
     }
 
     val model = settings.openAiTtsModel.trim().ifBlank { "gpt-4o-mini-tts" }
-    val voiceA = settings.openAiHostAVoice.trim().ifBlank { "onyx" }
-    val voiceB = settings.openAiHostBVoice.trim().ifBlank { "nova" }
+    val voices = cast.mapIndexed { idx, h ->
+      h.voiceId.ifBlank {
+        when (idx) {
+          0 -> "onyx"
+          1 -> "nova"
+          else -> "shimmer"
+        }
+      }
+    }
     val endpoint = if (baseUrl.endsWith("/audio/speech")) baseUrl else "$baseUrl/audio/speech"
 
     val tempDir = File(appContext.cacheDir, "tts_openai_${UUID.randomUUID()}")
@@ -583,7 +725,7 @@ class PodcastTtsService(private val appContext: Context) {
     try {
       turns.forEachIndexed { index, turn ->
         onProgress("Synthesizing turn ${index + 1}/${turns.size} (${turn.speaker})...")
-        val voice = if (turn.isHostB) voiceB else voiceA
+        val voice = voices.getOrElse(turn.hostIndex) { voices[0] }
         val payload = buildJsonObject {
           put("model", JsonPrimitive(model))
           put("input", JsonPrimitive(turn.text))
@@ -616,12 +758,12 @@ class PodcastTtsService(private val appContext: Context) {
       WavAudioUtils.stitchWavFiles(
         inputWavFiles = turnFiles,
         outputFile = outputWavFile,
-        pauseMs = 260
+        pauseMs = 240
       )
 
       return PodcastAudioResult(
         audioFile = outputWavFile,
-        providerUsed = "OpenAI / Custom TTS ($voiceA & $voiceB)",
+        providerUsed = "OpenAI / Custom TTS (${voices.joinToString(", ")})",
         turnsCount = turns.size
       )
     } finally {
@@ -631,6 +773,8 @@ class PodcastTtsService(private val appContext: Context) {
 
   private suspend fun synthesizeWithAndroidOnDeviceTts(
     turns: List<DialogueTurn>,
+    cast: List<AssignedHostVoice>,
+    language: PodcastLanguage,
     outputWavFile: File,
     settings: AppSettings,
     onProgress: (String) -> Unit
@@ -641,46 +785,60 @@ class PodcastTtsService(private val appContext: Context) {
     var ttsInstance: TextToSpeech? = null
     try {
       val preferredEngine = settings.androidTtsEngine.trim().ifBlank { null }
+      val targetLocale = Locale.forLanguageTag(language.bcp47Tag)
       val tts = try {
-        initAndroidTts(appContext, preferredEngine)
+        initAndroidTts(appContext, preferredEngine, targetLocale)
       } catch (ce: CancellationException) {
         throw ce
       } catch (engineErr: Exception) {
         if (preferredEngine != null) {
-          initAndroidTts(appContext, null)
+          initAndroidTts(appContext, null, targetLocale)
         } else {
           throw engineErr
         }
       }
       ttsInstance = tts
 
-      val (voiceA, voiceB) = resolveTwoHostVoices(
+      val resolvedVoices = resolveHostVoices(
         tts = tts,
-        preferredVoiceAName = settings.androidHostAVoice.trim(),
-        preferredVoiceBName = settings.androidHostBVoice.trim()
+        preferredVoiceNames = cast.map { it.voiceId },
+        targetLocale = targetLocale
       )
       val baseRate = settings.androidSpeechRate.coerceIn(0.5f, 2.0f)
       val basePitch = settings.androidSpeechPitch.coerceIn(0.5f, 2.0f)
-      val hasDistinctVoices = voiceA != null && voiceB != null && voiceA.name != voiceB.name
+      val distinctVoiceCount = resolvedVoices.mapNotNull { it?.name }.distinct().size
 
       val turnFiles = mutableListOf<File>()
 
       turns.forEachIndexed { index, turn ->
         onProgress("On-device TTS: Synthesizing turn ${index + 1}/${turns.size} (${turn.speaker})...")
-        if (turn.isHostB) {
-          if (voiceB != null) tts.voice = voiceB
-          val pitchOffset = if (hasDistinctVoices) 1.01f else 1.10f
-          tts.setPitch((basePitch * pitchOffset).coerceIn(0.5f, 2.0f))
-          tts.setSpeechRate((baseRate * 1.01f).coerceIn(0.5f, 2.0f))
-        } else {
-          if (voiceA != null) tts.voice = voiceA
-          val pitchOffset = if (hasDistinctVoices) 0.99f else 0.92f
-          tts.setPitch((basePitch * pitchOffset).coerceIn(0.5f, 2.0f))
-          tts.setSpeechRate(baseRate)
+        val hostIdx = turn.hostIndex.coerceIn(0, (resolvedVoices.size - 1).coerceAtLeast(0))
+        val assignedVoice = resolvedVoices.getOrNull(hostIdx)
+        if (assignedVoice != null) {
+          tts.voice = assignedVoice
         }
 
-        // Sub-chunk oversized turns (~650 chars max on sentence boundaries) so strict
-        // OEM TextToSpeech engines never truncate long dialogue paragraphs.
+        val pitchMultiplier = if (distinctVoiceCount >= cast.size) {
+          when (hostIdx) {
+            0 -> 0.99f
+            1 -> 1.01f
+            else -> 1.03f
+          }
+        } else {
+          when (hostIdx) {
+            0 -> 0.91f
+            1 -> 1.08f
+            else -> 1.00f
+          }
+        }
+        val rateMultiplier = when (hostIdx) {
+          0 -> 1.00f
+          1 -> 1.02f
+          else -> 0.98f
+        }
+        tts.setPitch((basePitch * pitchMultiplier).coerceIn(0.5f, 2.0f))
+        tts.setSpeechRate((baseRate * rateMultiplier).coerceIn(0.5f, 2.0f))
+
         val subChunks = PodcastScriptParser.chunkTurnText(
           turn.text,
           maxChars = PodcastScriptParser.DEFAULT_MAX_TURN_CHUNK_CHARS
@@ -720,7 +878,7 @@ class PodcastTtsService(private val appContext: Context) {
       WavAudioUtils.stitchWavFiles(
         inputWavFiles = turnFiles,
         outputFile = outputWavFile,
-        pauseMs = 250
+        pauseMs = 240
       )
 
       return PodcastAudioResult(
@@ -737,7 +895,8 @@ class PodcastTtsService(private val appContext: Context) {
 
   private suspend fun initAndroidTts(
     context: Context,
-    enginePackage: String?
+    enginePackage: String?,
+    targetLocale: Locale
   ): TextToSpeech = withContext(Dispatchers.Main) {
     val deferred = CompletableDeferred<Int>()
     val created = TextToSpeech(
@@ -761,48 +920,55 @@ class PodcastTtsService(private val appContext: Context) {
       throw IllegalStateException("Android TextToSpeech engine failed to initialize (status=$status).")
     }
 
-    val langRes = created.setLanguage(Locale.US)
+    val langRes = created.setLanguage(targetLocale)
     if (langRes == TextToSpeech.LANG_MISSING_DATA || langRes == TextToSpeech.LANG_NOT_SUPPORTED) {
-      created.setLanguage(Locale.getDefault())
+      val fallbackRes = created.setLanguage(Locale.US)
+      if (fallbackRes == TextToSpeech.LANG_MISSING_DATA || fallbackRes == TextToSpeech.LANG_NOT_SUPPORTED) {
+        created.setLanguage(Locale.getDefault())
+      }
     }
     created
   }
 
-  private fun resolveTwoHostVoices(
+  private fun resolveHostVoices(
     tts: TextToSpeech,
-    preferredVoiceAName: String,
-    preferredVoiceBName: String
-  ): Pair<Voice?, Voice?> {
+    preferredVoiceNames: List<String>,
+    targetLocale: Locale
+  ): List<Voice?> {
     return runCatching {
       val allVoices = tts.voices.orEmpty()
-      val explicitA = preferredVoiceAName.takeIf { it.isNotBlank() }?.let { target ->
-        allVoices.firstOrNull { it.name == target }
-      }
-      val explicitB = preferredVoiceBName.takeIf { it.isNotBlank() }?.let { target ->
-        allVoices.firstOrNull { it.name == target }
-      }
-
-      if (explicitA != null && explicitB != null) {
-        return@runCatching Pair(explicitA, explicitB)
-      }
+      val targetLang = targetLocale.language
 
       val available = allVoices.filter { voice ->
-        voice.locale.language.equals("en", ignoreCase = true) &&
+        voice.locale.language.equals(targetLang, ignoreCase = true) &&
           !voice.isNetworkConnectionRequired
       }.ifEmpty {
-        allVoices.filter {
-          it.locale.language.equals("en", ignoreCase = true) ||
-            it.locale.language.equals(Locale.getDefault().language, ignoreCase = true)
+        allVoices.filter { voice ->
+          voice.locale.language.equals(targetLang, ignoreCase = true)
+        }
+      }.ifEmpty {
+        allVoices.filter { voice ->
+          !voice.isNetworkConnectionRequired &&
+            (voice.locale.language.equals("en", ignoreCase = true) ||
+              voice.locale.language.equals(Locale.getDefault().language, ignoreCase = true))
         }
       }.sortedByDescending { it.quality }
 
-      val resolvedA = explicitA ?: available.firstOrNull() ?: tts.defaultVoice
-      val resolvedB = explicitB
-        ?: available.firstOrNull { it.name != resolvedA?.name }
-        ?: resolvedA
-
-      Pair(resolvedA, resolvedB)
-    }.getOrElse { Pair(null, null) }
+      val usedNames = mutableSetOf<String>()
+      preferredVoiceNames.map { preferred ->
+        val explicit = preferred.trim().takeIf { it.isNotEmpty() }?.let { target ->
+          allVoices.firstOrNull { it.name == target }
+        }
+        val picked = explicit
+          ?: available.firstOrNull { it.name !in usedNames }
+          ?: available.firstOrNull()
+          ?: tts.defaultVoice
+        if (picked != null) {
+          usedNames.add(picked.name)
+        }
+        picked
+      }
+    }.getOrElse { List(preferredVoiceNames.size) { null } }
   }
 
   private suspend fun synthesizeSingleUtteranceToFile(
@@ -898,6 +1064,7 @@ object OnDeviceTtsCatalog {
       val matching = created.voices.orEmpty().filter { voice ->
         !voice.isNetworkConnectionRequired &&
           (voice.locale.language.equals("en", ignoreCase = true) ||
+            voice.locale.language.equals("sv", ignoreCase = true) ||
             voice.locale.language.equals(defaultLang, ignoreCase = true))
       }.ifEmpty {
         created.voices.orEmpty().filter { !it.isNetworkConnectionRequired }

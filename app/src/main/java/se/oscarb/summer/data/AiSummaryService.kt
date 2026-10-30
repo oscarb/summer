@@ -21,6 +21,10 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class AiSummaryService(private val appContext: Context) {
@@ -45,10 +49,10 @@ class AiSummaryService(private val appContext: Context) {
       You are a concise, insightful reading assistant inside the "Summer" Android app.
       Summarize the following saved web page so the user can quickly catch up on what it's about and its key takeaways.
       
-      Format your response using clean bullet points:
-      • Start with a 1-2 sentence TL;DR overview.
-      • Follow with 3-5 key bullet points covering the most important facts, arguments, or insights.
-      • Keep it scannable, accurate, and free of filler phrases.
+      Format your response in clean Markdown:
+      - Start with `**TL;DR:**` followed by a crisp 1-2 sentence overview.
+      - Follow with 3-5 Markdown bullet points (`- **Lead takeaway**: ...`) covering the most important facts, arguments, or insights.
+      - Keep it scannable, accurate, and free of filler phrases.
       
       Title: ${website.title}
       URL: ${website.url}
@@ -61,128 +65,131 @@ class AiSummaryService(private val appContext: Context) {
     generateWithSelectedBackend(prompt, settings)
   }
 
-  suspend fun generateCatchMeUpDigest(
-    websites: List<SavedWebsite>,
-    settings: AppSettings
-  ): Result<String> = withContext(Dispatchers.IO) {
-    if (websites.isEmpty()) {
-      return@withContext Result.failure(IllegalArgumentException("No unread websites to summarize."))
-    }
-
-    val itemsBlock = websites.mapIndexed { index, site ->
-      val body = site.summary?.let { "Existing Summary:\n$it" }
-        ?: site.extractedContent.take(3_500).ifBlank { "(Title/URL only)" }
-      """
-      ---
-      ARTICLE [${index + 1}]
-      Title: ${site.title}
-      Domain: ${site.domain}
-      URL: ${site.url}
-      Content:
-      $body
-      """.trimIndent()
-    }.joinToString("\n\n")
-
-    val prompt = """
-      You are the "Catch Me Up" daily briefing assistant inside the "Summer" Android app.
-      The user has saved ${websites.size} website(s) from their feed to catch up on.
-      
-      Create a cohesive, easy-to-scan briefing across all ${websites.size} saved articles:
-      1. Start with a brief "Big Picture" 1-2 sentence synthesis of the themes across their saved links.
-      2. For each article (or logical theme group), provide a clear heading with its [Article #] and Title, followed by 2-3 punchy bullet points with the core takeaway.
-      3. Reference articles using their index like [1], [2], etc. so the user can match them with the source cards below.
-      
-      Saved Articles:
-      $itemsBlock
-    """.trimIndent()
-
-    generateWithSelectedBackend(prompt, settings)
-  }
-
   /**
-   * Generates a natural, spoken-word two-host mini-podcast script for a single saved article,
-   * designed specifically for listening rather than reading bullet points.
-   */
-  suspend fun generateSingleArticlePodcastScript(
-    website: SavedWebsite,
-    settings: AppSettings
-  ): Result<String> = withContext(Dispatchers.IO) {
-    val hostA = settings.hostAName.trim().ifBlank { "Alex" }
-    val hostB = settings.hostBName.trim().ifBlank { "Sam" }
-    val contentSnippet = website.extractedContent.ifBlank {
-      website.summary ?: "(Article body could not be fully extracted; discuss based on title and domain.)"
-    }.take(10_000)
-
-    val prompt = """
-      You are writing a short, engaging 2-host audio summary script for the "Summer" podcast app.
-      Instead of bullet points or written-style text, turn this article into a natural, lively 60-to-90 second conversation between two hosts: $hostA and $hostB.
-      
-      Guidelines for natural spoken audio:
-      - $hostA is the curious lead host who introduces the story and asks sharp questions.
-      - $hostB is the insightful analyst who unpacks the core takeaways, surprising details, and why it matters.
-      - Write ONLY for the ear: use natural phrasing, contractions, and conversational flow. Never use bullet points, markdown formatting, URLs, or robotic transitions.
-      - Format EVERY line strictly as "$hostA: <spoken words>" or "$hostB: <spoken words>" on its own line (6 to 10 turns total).
-      - Do NOT include stage directions like [laughs] or (intro music).
-      
-      Article Title: ${website.title}
-      Source Domain: ${website.domain}
-      Existing Written Summary: ${website.summary ?: "None"}
-      Article Content:
-      $contentSnippet
-    """.trimIndent()
-
-    generateWithSelectedBackend(prompt, settings)
-  }
-
-  /**
-   * Generates a cohesive 2-host "Catch Me Up" podcast episode script that weaves a narrative
-   * "red line" (connecting thread) across all the articles in a digest.
+   * Generates a cohesive 2-host or 3-host "Catch Me Up" podcast episode script that:
+   * 1. Opens with a warm welcome, today's date, and host name introductions.
+   * 2. Weaves a narrative "red line" (connecting thread) across all saved articles.
+   * 3. Translates and discusses everything in idiomatic Swedish when [language] is [PodcastLanguage.SWEDISH].
    */
   suspend fun generateCatchMeUpPodcastScript(
     websites: List<SavedWebsite>,
-    existingDigestMarkdown: String? = null,
-    settings: AppSettings
+    settings: AppSettings,
+    hostNames: List<String> = listOf(settings.hostAName, settings.hostBName),
+    language: PodcastLanguage = settings.podcastLanguage,
+    nowMillis: Long = System.currentTimeMillis()
   ): Result<String> = withContext(Dispatchers.IO) {
-    if (websites.isEmpty() && existingDigestMarkdown.isNullOrBlank()) {
+    if (websites.isEmpty()) {
       return@withContext Result.failure(IllegalArgumentException("No articles available for podcast script."))
     }
 
-    val hostA = settings.hostAName.trim().ifBlank { "Alex" }
-    val hostB = settings.hostBName.trim().ifBlank { "Sam" }
+    val cleanHosts = hostNames.map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty {
+      if (language == PodcastLanguage.SWEDISH) listOf("Astrid", "Erik") else listOf("Alex", "Sam")
+    }
+    val hostA = cleanHosts[0]
+    val hostB = cleanHosts.getOrElse(1) { if (language == PodcastLanguage.SWEDISH) "Erik" else "Sam" }
+    val hostC = cleanHosts.getOrNull(2)
+
+    val localDate = Instant.ofEpochMilli(nowMillis).atZone(ZoneId.systemDefault()).toLocalDate()
+    val formattedDate = when (language) {
+      PodcastLanguage.SWEDISH -> DateTimeFormatter.ofPattern("EEEE 'den' d MMMM yyyy", Locale.forLanguageTag("sv-SE"))
+        .format(localDate)
+      PodcastLanguage.ENGLISH -> DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy", Locale.US)
+        .format(localDate)
+    }
 
     val itemsBlock = websites.mapIndexed { index, site ->
       val body = site.summary?.let { "Key Summary:\n$it" }
-        ?: site.extractedContent.take(3_000).ifBlank { "(Title/URL only)" }
+        ?: site.extractedContent.take(3_200).ifBlank { "(Title/URL only)" }
       """
       ARTICLE ${index + 1}: "${site.title}" (from ${site.domain})
       $body
       """.trimIndent()
     }.joinToString("\n\n")
 
-    val digestContext = if (!existingDigestMarkdown.isNullOrBlank()) {
-      "\nBriefing Overview:\n$existingDigestMarkdown\n"
+    val hostRolesBlock = if (hostC != null) {
+      """
+      HOSTS (3-HOST PANEL):
+      - $hostA: The warm, curious lead host who opens the show, drives the narrative arc, and connects the stories.
+      - $hostB: The sharp analyst who unpacks the deepest facts, technical/cultural details, and core takeaways.
+      - $hostC: The lively, pragmatic third co-host who adds fresh perspectives, witty reactions, and real-world implications.
+      - Keep all three hosts actively involved across the episode with natural back-and-forth dynamics.
+      """.trimIndent()
     } else {
-      ""
+      """
+      HOSTS (2-HOST CONVERSATION):
+      - $hostA: The warm, curious lead host who opens the show, drives the narrative arc, and connects the dots.
+      - $hostB: The sharp, insightful co-host who brings out the most interesting facts, nuances, and "why it matters" takeaways.
+      """.trimIndent()
     }
 
+    val introRequirement = when (language) {
+      PodcastLanguage.SWEDISH -> {
+        val introExample = if (hostC != null) {
+          "\"Välkomna till ett nytt avsnitt av Summer! Idag är det $formattedDate. Jag heter $hostA, och med mig har jag $hostB och $hostC...\""
+        } else {
+          "\"Välkomna till ett nytt avsnitt av Summer! Idag är det $formattedDate. Jag heter $hostA, och med mig har jag $hostB...\""
+        }
+        """
+        MANDATORY OPENING PRESENTATION:
+        - Start Turn 1 with a warm, natural welcome to another episode of "Summer", state today's date ($formattedDate), and have the hosts introduce themselves by name (for example: $introExample), with the co-host(s) greeting briefly before teasing today's overarching theme.
+        """.trimIndent()
+      }
+      PodcastLanguage.ENGLISH -> {
+        val introExample = if (hostC != null) {
+          "\"Welcome back to another episode of Summer! Today is $formattedDate — I'm $hostA, and I'm joined today by $hostB and $hostC...\""
+        } else {
+          "\"Welcome back to another episode of Summer! Today is $formattedDate — I'm $hostA, and with me is $hostB...\""
+        }
+        """
+        MANDATORY OPENING PRESENTATION:
+        - Start Turn 1 with a warm, natural welcome to another episode of "Summer", state today's date ($formattedDate), and have the hosts introduce themselves by name (for example: $introExample), with the co-host(s) greeting briefly before teasing today's overarching theme.
+        """.trimIndent()
+      }
+    }
+
+    val languageInstruction = when (language) {
+      PodcastLanguage.SWEDISH -> """
+        CRITICAL LANGUAGE REQUIREMENT — SWEDISH (SVENSKA):
+        - Write the ENTIRE podcast dialogue in natural, idiomatic, spoken SWEDISH (svenska).
+        - Even when the source articles are in English (or any other language), translate and discuss all concepts, quotes, titles, and takeaways seamlessly in natural everyday Swedish podcast prose.
+        - Avoid stiff word-for-word English translations; sound like native Swedish tech & culture podcast hosts.
+      """.trimIndent()
+      PodcastLanguage.ENGLISH -> """
+        LANGUAGE:
+        - Write the entire conversation in natural, engaging spoken English.
+      """.trimIndent()
+    }
+
+    val speakerFormatLines = buildString {
+      appendLine("  $hostA: <spoken words>")
+      appendLine("  $hostB: <spoken words>")
+      if (hostC != null) {
+        appendLine("  $hostC: <spoken words>")
+      }
+    }.trimEnd()
+
+    val targetTurns = if (hostC != null) "15 to 26" else "12 to 22"
+
     val prompt = """
-      You are the showrunner and scriptwriter for the "Summer Catch Me Up" daily podcast.
-      Write an engaging, natural-sounding two-host podcast episode between **$hostA** and **$hostB** covering the user's saved articles below.
+      You are the showrunner and scriptwriter for the "Summer" daily catch-up podcast.
+      Write an engaging, natural-sounding podcast episode between ${PodcastCastCatalog.formatHostList(cleanHosts, language)} covering the user's ${websites.size} saved article(s) below.
+      
+      $languageInstruction
+      
+      $hostRolesBlock
+      
+      $introRequirement
       
       CRITICAL GOAL — THE "RED LINE" ACROSS ARTICLES:
-      - Do NOT treat the articles as disconnected clips or a checklist.
+      - Do NOT treat the articles as disconnected clips or a mechanical checklist.
       - Find the overarching narrative thread ("red line"), shared themes, tensions, or surprising contrasts across these stories.
-      - Open with a warm, hooky 2-turn intro that highlights the big-picture thread connecting today's stories.
-      - Every time you move from one article to the next, weave a natural conversational bridge (e.g., how one story's trend echoes, contrasts with, or sets up the next story) so the entire episode flows like a single unified conversation.
-      - $hostA is the curious, engaging host who drives the narrative arc and connects the dots.
-      - $hostB is the sharp, insightful co-host who brings out the most interesting facts, nuances, and "why it matters" takeaways.
-      - Write strictly for spoken audio: conversational rhythm, contractions, and natural reactions ("Right, and here's the wild part...", "Wait, seriously?").
-      - Format EVERY turn strictly as:
-        $hostA: <spoken words>
-        $hostB: <spoken words>
-      - Do NOT use markdown bold, bullet points, bracketed citations like [1], or stage directions like [music] or [laughs].
-      - Aim for 12 to 22 conversational turns total so it covers every article meaningfully while keeping a brisk, engaging pace.
-      $digestContext
+      - Every time you move from one article to the next, weave a natural conversational bridge so the entire episode flows like one unified discussion.
+      - Write strictly for spoken audio: conversational rhythm, natural reactions, and clear pronunciation.
+      - Format EVERY turn strictly on its own line starting with the speaker's exact name and a colon:
+      $speakerFormatLines
+      - Do NOT use markdown bold, bullet points, bracketed citations like [1], URLs, or stage directions like [music] or [laughs].
+      - Aim for $targetTurns conversational turns total so every saved article is covered meaningfully at a brisk, lively pace.
+      
       Articles to weave together:
       $itemsBlock
     """.trimIndent()
@@ -241,6 +248,18 @@ class AiSummaryService(private val appContext: Context) {
           .filter { it.startsWith("gemini-3") && !it.contains("tts") && !it.contains("image") }
       }
     }.getOrDefault(emptyList())
+  }
+
+  internal suspend fun generateRawPromptForBenchmark(
+    prompt: String,
+    settings: AppSettings,
+    allowCapacityFallback: Boolean = false
+  ): Result<String> = withContext(Dispatchers.IO) {
+    generateWithSelectedBackend(
+      prompt = prompt,
+      settings = settings,
+      allowCapacityFallback = allowCapacityFallback
+    )
   }
 
   private suspend fun generateWithSelectedBackend(
@@ -391,7 +410,6 @@ class AiSummaryService(private val appContext: Context) {
         maxOutputTokens = 512
       }
       val localModel = GenerativeModel(generationConfig = config)
-      // On-device Gemini Nano has a smaller context window; trim prompt safely
       val response = localModel.generateContent(prompt.take(6_000))
       response.text ?: throw IllegalStateException("Gemini Nano returned empty output.")
     } catch (ce: CancellationException) {
@@ -452,14 +470,12 @@ class AiSummaryService(private val appContext: Context) {
         throw IllegalStateException("API HTTP ${response.code}: ${bodyStr.take(300)}")
       }
       val root = json.parseToJsonElement(bodyStr).jsonObject
-      // OpenAI format
       val choices = root["choices"] as? JsonArray
       if (choices != null && choices.isNotEmpty()) {
         val message = choices[0].jsonObject["message"] as? JsonObject
         val content = message?.get("content")?.jsonPrimitive?.content
         if (!content.isNullOrBlank()) return content
       }
-      // Anthropic native format fallback
       val contentBlocks = root["content"] as? JsonArray
       if (contentBlocks != null && contentBlocks.isNotEmpty()) {
         val text = contentBlocks[0].jsonObject["text"]?.jsonPrimitive?.content

@@ -3,18 +3,20 @@ package se.oscarb.summer.util
 import se.oscarb.summer.data.DialogueTurn
 
 /**
- * Parses and normalizes conversational podcast scripts between two hosts (e.g., Alex and Sam)
- * so they can be rendered as an interactive transcript in the UI and synthesized by
- * multi-speaker or turn-by-turn TTS engines.
+ * Parses and normalizes conversational podcast scripts across 2 or 3 hosts
+ * so they can be synthesized accurately by multi-speaker or turn-by-turn TTS engines.
  */
 object PodcastScriptParser {
 
   const val DEFAULT_MAX_TURN_CHUNK_CHARS = 650
 
   private val SPEAKER_LINE_REGEX = Regex(
-    pattern = """^\s*(?:[-*•]\s*)?(?:\*\*|__)?([A-Za-z0-9 _.-]{2,24})(?:\*\*|__)?\s*:\s*(.+)$"""
+    pattern = """^\s*(?:[-*•]\s*)?(?:\*\*|__)?([\p{L}0-9 _.-]{2,28})(?:\*\*|__)?\s*:\s*(.+)$"""
   )
-  private val STAGE_DIRECTION_REGEX = Regex("""\[[^\]]*laughs[^\]]*]|\([^)]*laughs[^)]*\)|\[[^\]]*sighs[^\]]*]|\([^)]*sighs[^)]*\)|\[[^\]]*music[^\]]*]|\([^)]*music[^)]*\)|\[[^\]]*pause[^\]]*]""", RegexOption.IGNORE_CASE)
+  private val STAGE_DIRECTION_REGEX = Regex(
+    """\[[^\]]*laughs[^\]]*]|\([^)]*laughs[^)]*\)|\[[^\]]*skratt[^\]]*]|\([^)]*skratt[^)]*\)|\[[^\]]*sighs[^\]]*]|\([^)]*sighs[^)]*\)|\[[^\]]*music[^\]]*]|\([^)]*music[^)]*\)|\[[^\]]*musik[^\]]*]|\([^)]*musik[^)]*\)|\[[^\]]*pause[^\]]*]""",
+    RegexOption.IGNORE_CASE
+  )
   private val HORIZONTAL_RULE_REGEX = Regex("""^\s*([-*_])\1{2,}\s*$""")
   private val MARKDOWN_IMAGE_REGEX = Regex("""!\[([^\]]*)]\([^)]*\)""")
   private val MARKDOWN_LINK_REGEX = Regex("""\[([^\]]+)]\([^)]*\)""")
@@ -24,29 +26,47 @@ object PodcastScriptParser {
   private val MARKDOWN_DECORATION_REGEX = Regex("""(\*\*|__|`)""")
   private val ITALIC_STAR_REGEX = Regex("""(?<!\*)\*(?!\s)([^*]+?)(?<!\s)\*(?!\*)""")
   private val ITALIC_UNDERSCORE_REGEX = Regex("""(?<!_)_(?!\s)([^_]+?)(?<!\s)_(?!_)""")
+
   private val SECOND_HOST_FALLBACK_REGEX = Regex(
-    pattern = """^(?:co-?host|(?:host|speaker|person|voice)\s*[-#]?\s*(?:2|b|two))$|\bco-?host\b""",
+    pattern = """^(?:co-?host|(?:host|speaker|person|voice|värd|talare)\s*[-#]?\s*(?:2|b|two|två))$|\bco-?host\b""",
+    option = RegexOption.IGNORE_CASE
+  )
+  private val THIRD_HOST_FALLBACK_REGEX = Regex(
+    pattern = """^(?:(?:host|speaker|person|voice|värd|talare)\s*[-#]?\s*(?:3|c|three|tre)|guest|gäst)$""",
     option = RegexOption.IGNORE_CASE
   )
 
-  /**
-   * Parses a raw LLM-generated script into structured [DialogueTurn] items.
-   * If the script has no explicit speaker prefixes (e.g. a single-narrator paragraph summary),
-   * it splits paragraphs naturally or assigns them to [hostAName].
-   */
   fun parseTurns(
     rawScript: String,
     hostAName: String = "Alex",
     hostBName: String = "Sam"
   ): List<DialogueTurn> {
+    return parseTurns(
+      rawScript = rawScript,
+      hostNames = listOf(
+        hostAName.trim().ifBlank { "Alex" },
+        hostBName.trim().ifBlank { "Sam" }
+      )
+    )
+  }
+
+  /**
+   * Parses a raw LLM-generated script into structured [DialogueTurn] items across 2 or 3 hosts.
+   */
+  fun parseTurns(
+    rawScript: String,
+    hostNames: List<String>
+  ): List<DialogueTurn> {
     if (rawScript.isBlank()) return emptyList()
 
-    val cleanHostA = hostAName.trim().ifBlank { "Alex" }
-    val cleanHostB = hostBName.trim().ifBlank { "Sam" }
+    val cleanHosts = hostNames
+      .map { it.trim() }
+      .filter { it.isNotEmpty() }
+      .ifEmpty { listOf("Alex", "Sam") }
 
     val turns = mutableListOf<DialogueTurn>()
-    var currentSpeaker = cleanHostA
-    var currentIsHostB = false
+    var currentHostIndex = 0
+    var currentSpeaker = cleanHosts[0]
     val currentBuffer = StringBuilder()
 
     fun flushBuffer() {
@@ -55,7 +75,7 @@ object PodcastScriptParser {
         turns.add(
           DialogueTurn(
             speaker = currentSpeaker,
-            isHostB = currentIsHostB,
+            hostIndex = currentHostIndex,
             text = text
           )
         )
@@ -66,7 +86,6 @@ object PodcastScriptParser {
     for (rawLine in rawScript.lines()) {
       val trimmed = rawLine.trim()
       if (trimmed.isEmpty()) continue
-      // Skip markdown section headers or horizontal rules if any leaked in
       if (trimmed.startsWith("#") || HORIZONTAL_RULE_REGEX.matches(trimmed)) continue
 
       val match = SPEAKER_LINE_REGEX.matchEntire(trimmed)
@@ -74,20 +93,22 @@ object PodcastScriptParser {
         val rawSpeakerLabel = match.groupValues[1].trim()
         val spokenPart = match.groupValues[2].trim()
 
-        // Ignore false positives like "TL;DR:" or "Note:" or "Article 1:"
         val lowerLabel = rawSpeakerLabel.lowercase()
         val isMetadataPrefix = lowerLabel == "tl;dr" ||
           lowerLabel == "summary" ||
+          lowerLabel == "sammanfattning" ||
           lowerLabel == "title" ||
+          lowerLabel == "titel" ||
           lowerLabel == "url" ||
           lowerLabel.startsWith("article") ||
+          lowerLabel.startsWith("artikel") ||
           lowerLabel.startsWith("http")
 
         if (!isMetadataPrefix) {
           flushBuffer()
-          val isB = isSecondHost(rawSpeakerLabel, cleanHostA, cleanHostB)
-          currentIsHostB = isB
-          currentSpeaker = if (isB) cleanHostB else cleanHostA
+          val idx = resolveHostIndex(rawSpeakerLabel, cleanHosts)
+          currentHostIndex = idx
+          currentSpeaker = cleanHosts.getOrElse(idx) { cleanHosts[0] }
           currentBuffer.append(spokenPart)
           continue
         }
@@ -101,46 +122,51 @@ object PodcastScriptParser {
 
     flushBuffer()
 
-    // If no turns were extracted, fallback to a single turn with cleaned text
     if (turns.isEmpty()) {
       val fallback = cleanSpokenText(rawScript)
       if (fallback.isNotBlank()) {
-        return listOf(DialogueTurn(speaker = cleanHostA, isHostB = false, text = fallback))
+        return listOf(DialogueTurn(speaker = cleanHosts[0], hostIndex = 0, text = fallback))
       }
     }
 
     return turns
   }
 
-  private fun isSecondHost(
+  private fun resolveHostIndex(
     rawSpeakerLabel: String,
-    hostAName: String,
-    hostBName: String
-  ): Boolean {
+    cleanHosts: List<String>
+  ): Int {
     val normalized = rawSpeakerLabel.trim().lowercase()
-    val aLower = hostAName.trim().lowercase()
-    val bLower = hostBName.trim().lowercase()
+    val lowers = cleanHosts.map { it.lowercase() }
 
-    // 1. Exact case-insensitive match first (prevents "Alex" matching Host B "Al" or "Samantha" matching "Sam")
-    if (bLower.isNotEmpty() && normalized == bLower) return true
-    if (aLower.isNotEmpty() && normalized == aLower) return false
+    // 1. Exact case-insensitive match first
+    val exactIdx = lowers.indexOfFirst { it.isNotEmpty() && it == normalized }
+    if (exactIdx >= 0) return exactIdx
 
-    // 2. Whole-word match (preferring the longer host name if both appear)
-    val wholeA = containsWholeName(normalized, aLower)
-    val wholeB = containsWholeName(normalized, bLower)
-    if (wholeA && !wholeB) return false
-    if (wholeB && !wholeA) return true
-    if (wholeA && wholeB) return bLower.length > aLower.length
+    // 2. Whole-word match (preferring longer host name if multiple match)
+    val wholeMatches = lowers.mapIndexedNotNull { index, name ->
+      if (containsWholeName(normalized, name)) index to name.length else null
+    }
+    if (wholeMatches.isNotEmpty()) {
+      return wholeMatches.maxBy { it.second }.first
+    }
 
-    // 3. Substring match (preferring the longer host name if both appear)
-    val subA = aLower.isNotEmpty() && normalized.contains(aLower)
-    val subB = bLower.isNotEmpty() && normalized.contains(bLower)
-    if (subA && !subB) return false
-    if (subB && !subA) return true
-    if (subA && subB) return bLower.length > aLower.length
+    // 3. Substring match (preferring longer host name if multiple match)
+    val subMatches = lowers.mapIndexedNotNull { index, name ->
+      if (name.isNotEmpty() && normalized.contains(name)) index to name.length else null
+    }
+    if (subMatches.isNotEmpty()) {
+      return subMatches.maxBy { it.second }.first
+    }
 
-    // 4. Generic role fallback (e.g. "Host B", "Speaker 2", "Co-host") without matching names like "Bob" or "Jacob"
-    return SECOND_HOST_FALLBACK_REGEX.containsMatchIn(normalized)
+    // 4. Generic role fallback ("Host 3" / "Host C", "Host 2" / "Co-host", else Host 0)
+    if (cleanHosts.size >= 3 && THIRD_HOST_FALLBACK_REGEX.containsMatchIn(normalized)) {
+      return 2
+    }
+    if (cleanHosts.size >= 2 && SECOND_HOST_FALLBACK_REGEX.containsMatchIn(normalized)) {
+      return 1
+    }
+    return 0
   }
 
   private fun containsWholeName(haystack: String, needle: String): Boolean {
@@ -149,10 +175,6 @@ object PodcastScriptParser {
     return pattern.containsMatchIn(haystack)
   }
 
-  /**
-   * Strips markdown symbols, unwraps links/inline code, and removes stage directions
-   * so TTS engines read natural speech without spelling out raw URLs.
-   */
   fun cleanSpokenText(raw: String): String {
     var cleaned = raw
     cleaned = MARKDOWN_IMAGE_REGEX.replace(cleaned, "$1")
@@ -170,11 +192,6 @@ object PodcastScriptParser {
       .trim()
   }
 
-  /**
-   * Splits a spoken turn into chunks of at most [maxChars] characters, breaking on
-   * paragraph, sentence, then word boundaries so strict on-device Android TTS engines
-   * never truncate an unusually long dialogue turn.
-   */
   fun chunkTurnText(
     text: String,
     maxChars: Int = DEFAULT_MAX_TURN_CHUNK_CHARS
@@ -267,38 +284,50 @@ object PodcastScriptParser {
     return result
   }
 
-  /**
-   * Formats turns into the exact `Speaker: text` format expected by Gemini's
-   * `multiSpeakerVoiceConfig` API.
-   */
   fun formatForGeminiMultiSpeaker(
     turns: List<DialogueTurn>,
     hostAName: String = "Alex",
     hostBName: String = "Sam"
   ): String {
-    val cleanA = hostAName.trim().ifBlank { "Alex" }
-    val cleanB = hostBName.trim().ifBlank { "Sam" }
+    return formatForGeminiMultiSpeaker(turns, listOf(hostAName, hostBName))
+  }
+
+  fun formatForGeminiMultiSpeaker(
+    turns: List<DialogueTurn>,
+    hostNames: List<String>
+  ): String {
+    val cleanHosts = hostNames.map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { listOf("Alex", "Sam") }
     return turns.joinToString("\n") { turn ->
-      val speakerName = if (turn.isHostB) cleanB else cleanA
+      val speakerName = cleanHosts.getOrElse(turn.hostIndex) { cleanHosts[0] }
       "$speakerName: ${turn.text}"
     }
   }
 
-  /**
-   * Formats turns into multi-voice SSML for Microsoft Azure AI Speech.
-   */
   fun formatAsAzureMultiVoiceSsml(
     turns: List<DialogueTurn>,
     hostAVoice: String,
     hostBVoice: String
   ): String {
+    return formatAsAzureMultiVoiceSsml(
+      turns = turns,
+      hostVoices = listOf(hostAVoice, hostBVoice),
+      xmlLang = "en-US"
+    )
+  }
+
+  fun formatAsAzureMultiVoiceSsml(
+    turns: List<DialogueTurn>,
+    hostVoices: List<String>,
+    xmlLang: String = "en-US"
+  ): String {
+    val cleanVoices = hostVoices.ifEmpty { listOf("en-US-AndrewMultilingualNeural", "en-US-AvaMultilingualNeural") }
     val body = turns.joinToString("\n") { turn ->
-      val voice = if (turn.isHostB) hostBVoice else hostAVoice
+      val voice = cleanVoices.getOrElse(turn.hostIndex) { cleanVoices[0] }
       val escaped = escapeXml(turn.text)
-      """  <voice name="${escapeXml(voice)}">$escaped <break time="250ms"/></voice>"""
+      """  <voice name="${escapeXml(voice)}">$escaped <break time="240ms"/></voice>"""
     }
     return """
-      <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
+      <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${escapeXml(xmlLang)}">
       $body
       </speak>
     """.trimIndent()
