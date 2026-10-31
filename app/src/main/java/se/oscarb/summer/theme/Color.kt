@@ -19,6 +19,8 @@ val SummerOnSurface = Color(0xFFEDE8DF)
 val SummerHeadline = Color(0xFFEDE8DF)
 val SummerOnSurfaceVariant = Color(0xFF9E9EA7)
 val SummerOnBackground = Color(0xFFEDE8DF)
+val SummerTextPrimary = SummerOnSurface
+val SummerTextSecondary = SummerOnSurfaceVariant
 
 // Accents
 val SummerPrimary = Color(0xFFFFE0B7)

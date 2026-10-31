@@ -136,8 +136,30 @@ import se.oscarb.summer.data.DigestEntry
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material.icons.filled.AddLink
+import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.ui.text.font.FontFamily
+import se.oscarb.summer.theme.SummerError
+import se.oscarb.summer.theme.SummerSurfaceDim
+import se.oscarb.summer.theme.SummerSurfaceContainerLow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -150,6 +172,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.mutableFloatStateOf
@@ -171,6 +194,9 @@ import se.oscarb.summer.data.SavedWebsite
 import se.oscarb.summer.podcast.PodcastPlaybackState
 import se.oscarb.summer.theme.SummerBackground
 import se.oscarb.summer.theme.SummerBorderSubtle
+import se.oscarb.summer.theme.SummerOutline
+import se.oscarb.summer.theme.SummerTextPrimary
+import se.oscarb.summer.theme.SummerTextSecondary
 import se.oscarb.summer.theme.SummerError
 import se.oscarb.summer.theme.SummerErrorContainer
 import se.oscarb.summer.theme.SummerOnErrorContainer
@@ -181,6 +207,7 @@ import se.oscarb.summer.theme.SummerPrimary
 import se.oscarb.summer.theme.SummerPrimaryContainer
 import se.oscarb.summer.theme.SummerSecondary
 import se.oscarb.summer.theme.SummerSurface
+import se.oscarb.summer.theme.SummerSurfaceBright
 import se.oscarb.summer.theme.SummerSurfaceContainer
 import se.oscarb.summer.theme.SummerSurfaceContainerHigh
 import se.oscarb.summer.theme.SummerSurfaceContainerHighest
@@ -323,16 +350,38 @@ fun MainScreen(
               Icon(
                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = "Back",
-                tint = SummerOnSurface
+                tint = SummerOnSurfaceVariant
               )
             }
           },
           title = {
             Text(
               text = "Settings",
-              style = MaterialTheme.typography.titleLarge,
+              style = MaterialTheme.typography.headlineMedium.copy(
+                fontFamily = NewsreaderFontFamily,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Medium
+              ),
               color = SummerOnSurface
             )
+          },
+          actions = {
+            Box(
+              modifier = Modifier
+                .padding(end = 16.dp)
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(SummerSurfaceContainerHigh)
+                .border(1.dp, SummerBorderSubtle, CircleShape),
+              contentAlignment = Alignment.Center
+            ) {
+              Icon(
+                painter = painterResource(id = R.drawable.ic_summer_sunrise),
+                contentDescription = "Summer",
+                tint = SummerPrimaryContainer,
+                modifier = Modifier.size(18.dp)
+              )
+            }
           },
           colors = TopAppBarDefaults.topAppBarColors(
             containerColor = SummerSurface
@@ -2574,6 +2623,213 @@ private fun formatDurationMs(ms: Long): String {
 }
 
 @Composable
+private fun SettingsSectionCard(
+  title: String,
+  subtitle: String,
+  icon: ImageVector,
+  iconTint: Color = SummerPrimaryContainer,
+  modifier: Modifier = Modifier,
+  content: @Composable ColumnScope.() -> Unit
+) {
+  Surface(
+    color = SummerSurfaceContainer,
+    shape = RoundedCornerShape(20.dp),
+    border = BorderStroke(1.dp, SummerBorderSubtle),
+    modifier = modifier.fillMaxWidth()
+  ) {
+    Column(modifier = Modifier.padding(16.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+          imageVector = icon,
+          contentDescription = null,
+          tint = iconTint,
+          modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+          text = title,
+          style = MaterialTheme.typography.titleMedium.copy(
+            fontFamily = NewsreaderFontFamily,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Medium
+          ),
+          color = SummerPrimary
+        )
+      }
+      Text(
+        text = subtitle,
+        style = MaterialTheme.typography.bodySmall.copy(
+          fontFamily = ManropeFontFamily,
+          fontSize = 13.sp
+        ),
+        color = SummerOnSurfaceVariant,
+        modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+      )
+      content()
+    }
+  }
+}
+
+@Composable
+private fun SettingsSwitchRow(
+  title: String,
+  subtitle: String,
+  checked: Boolean,
+  onCheckedChange: (Boolean) -> Unit,
+  modifier: Modifier = Modifier
+) {
+  Row(
+    modifier = modifier.fillMaxWidth(),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.SpaceBetween
+  ) {
+    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+      Text(
+        text = title,
+        style = MaterialTheme.typography.bodyLarge.copy(
+          fontFamily = ManropeFontFamily,
+          fontSize = 14.sp,
+          fontWeight = FontWeight.Medium
+        ),
+        color = SummerOnSurface
+      )
+      Text(
+        text = subtitle,
+        style = MaterialTheme.typography.bodySmall.copy(
+          fontFamily = ManropeFontFamily,
+          fontSize = 12.sp
+        ),
+        color = SummerOnSurfaceVariant,
+        modifier = Modifier.padding(top = 2.dp)
+      )
+    }
+    Switch(
+      checked = checked,
+      onCheckedChange = onCheckedChange,
+      colors = SwitchDefaults.colors(
+        checkedThumbColor = SummerOnPrimaryContainer,
+        checkedTrackColor = SummerPrimaryContainer,
+        uncheckedThumbColor = SummerOnSurfaceVariant,
+        uncheckedTrackColor = SummerSurfaceContainerHigh,
+        uncheckedBorderColor = Color.Transparent
+      )
+    )
+  }
+}
+
+@Composable
+private fun SettingsRadioCard(
+  selected: Boolean,
+  onClick: () -> Unit,
+  title: String,
+  subtitle: String,
+  badgeText: String? = null,
+  codeTag: String? = null,
+  modifier: Modifier = Modifier
+) {
+  Surface(
+    onClick = onClick,
+    color = if (selected) SummerPrimaryContainer.copy(alpha = 0.12f) else SummerSurfaceDim,
+    shape = RoundedCornerShape(14.dp),
+    border = BorderStroke(
+      width = if (selected) 1.5.dp else 1.dp,
+      color = if (selected) SummerPrimaryContainer else SummerBorderSubtle
+    ),
+    modifier = modifier.fillMaxWidth()
+  ) {
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(12.dp),
+      verticalAlignment = Alignment.Top
+    ) {
+      Box(
+        modifier = Modifier
+          .padding(top = 2.dp)
+          .size(16.dp)
+          .clip(CircleShape)
+          .border(
+            width = if (selected) 2.dp else 1.dp,
+            color = if (selected) SummerPrimaryContainer else SummerOutline,
+            shape = CircleShape
+          ),
+        contentAlignment = Alignment.Center
+      ) {
+        if (selected) {
+          Box(
+            modifier = Modifier
+              .size(8.dp)
+              .clip(CircleShape)
+              .background(SummerPrimaryContainer)
+          )
+        }
+      }
+      Spacer(modifier = Modifier.width(10.dp))
+      Column(modifier = Modifier.weight(1f)) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+            ),
+            color = if (selected) SummerPrimary else SummerOnSurface
+          )
+          if (!badgeText.isNullOrBlank()) {
+            Surface(
+              color = if (selected) SummerPrimaryContainer.copy(alpha = 0.2f) else SummerSurfaceContainerHighest,
+              shape = RoundedCornerShape(6.dp)
+            ) {
+              Text(
+                text = badgeText,
+                style = MaterialTheme.typography.labelSmall.copy(
+                  fontFamily = ManropeFontFamily,
+                  fontSize = 10.sp,
+                  fontWeight = FontWeight.Bold
+                ),
+                color = if (selected) SummerPrimary else SummerOnSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+              )
+            }
+          }
+        }
+        Text(
+          text = subtitle,
+          style = MaterialTheme.typography.bodySmall.copy(
+            fontFamily = ManropeFontFamily,
+            fontSize = 12.sp
+          ),
+          color = SummerOnSurfaceVariant,
+          modifier = Modifier.padding(top = 2.dp)
+        )
+        if (!codeTag.isNullOrBlank()) {
+          Surface(
+            color = SummerSurfaceDim.copy(alpha = 0.9f),
+            shape = RoundedCornerShape(4.dp),
+            border = BorderStroke(1.dp, SummerBorderSubtle),
+            modifier = Modifier.padding(top = 6.dp)
+          ) {
+            Text(
+              text = codeTag,
+              style = MaterialTheme.typography.labelSmall.copy(
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp
+              ),
+              color = SummerSecondary,
+              modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
 private fun SettingsTab(
   settings: AppSettings,
   verification: VerificationUiState,
@@ -2599,1075 +2855,1303 @@ private fun SettingsTab(
     verticalArrangement = Arrangement.spacedBy(16.dp)
   ) {
     // Summarization & Session Auto-Podcast Behavior Card
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-      Column(modifier = Modifier.padding(16.dp)) {
-        Text(
-          text = "Summarization & Auto-Podcast Behavior",
-          style = MaterialTheme.typography.titleMedium,
-          fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-          Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(
-              text = "Auto-summarize text on save",
-              style = MaterialTheme.typography.bodyLarge,
-              fontWeight = FontWeight.Medium
-            )
-            Text(
-              text = "Automatically generate the Markdown AI text summary right after a link is saved.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-          }
-          Switch(
-            checked = settings.autoSummarizeOnSave,
-            onCheckedChange = { enabled ->
-              onUpdateSettings { it.copy(autoSummarizeOnSave = enabled) }
-            }
-          )
+    SettingsSectionCard(
+      title = "Automation & Digests",
+      subtitle = "Background workflows, link capture summarization and auto-generated podcasts",
+      icon = Icons.Default.Sync
+    ) {
+      SettingsSwitchRow(
+        title = "Auto-summarize text on save",
+        subtitle = "Automatically generate the Markdown AI text summary right after a link is saved.",
+        checked = settings.autoSummarizeOnSave,
+        onCheckedChange = { enabled ->
+          onUpdateSettings { it.copy(autoSummarizeOnSave = enabled) }
         }
+      )
 
-        Spacer(modifier = Modifier.height(12.dp))
-        HorizontalDivider()
-        Spacer(modifier = Modifier.height(12.dp))
+      HorizontalDivider(
+        color = SummerBorderSubtle,
+        modifier = Modifier.padding(vertical = 12.dp)
+      )
 
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.SpaceBetween
+      SettingsSwitchRow(
+        title = "Auto-podcast after browsing session",
+        subtitle = "Waits until you stop saving links (e.g. from Google Feed), groups links saved close in time, silently generates a Catch Me Up podcast, and notifies you with a Play button.",
+        checked = settings.autoPodcastAfterQuietWindow,
+        onCheckedChange = { enabled ->
+          onUpdateSettings { it.copy(autoPodcastAfterQuietWindow = enabled) }
+        }
+      )
+
+      AnimatedVisibility(visible = settings.autoPodcastAfterQuietWindow) {
+        Column(
+          modifier = Modifier.padding(top = 14.dp),
+          verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-          Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(
-              text = "Auto-podcast after browsing session",
-              style = MaterialTheme.typography.bodyLarge,
-              fontWeight = FontWeight.Medium
-            )
-            Text(
-              text = "Waits until you stop saving links (e.g. from Google Feed), groups links saved close in time, silently generates a Catch Me Up podcast, and notifies you with a Play button.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-          }
-          Switch(
-            checked = settings.autoPodcastAfterQuietWindow,
-            onCheckedChange = { enabled ->
-              onUpdateSettings { it.copy(autoPodcastAfterQuietWindow = enabled) }
+          // Session Quiet Window Slider
+          Surface(
+            color = SummerSurfaceDim,
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, SummerBorderSubtle),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                Text(
+                  text = "Session Quiet Window",
+                  style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                  color = SummerTextPrimary
+                )
+                Surface(
+                  color = SummerPrimaryContainer.copy(alpha = 0.18f),
+                  shape = RoundedCornerShape(6.dp)
+                ) {
+                  Text(
+                    text = "${settings.autoPodcastQuietMinutes} min",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = SummerPrimaryContainer,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                  )
+                }
+              }
+              Spacer(modifier = Modifier.height(4.dp))
+              Text(
+                text = "Wait for you to stop saving links before initiating episode generation.",
+                style = MaterialTheme.typography.bodySmall,
+                color = SummerTextSecondary
+              )
+              Spacer(modifier = Modifier.height(6.dp))
+              Slider(
+                value = settings.autoPodcastQuietMinutes.toFloat(),
+                onValueChange = { onUpdateSettings { s -> s.copy(autoPodcastQuietMinutes = it.roundToInt()) } },
+                valueRange = 1f..10f,
+                steps = 8,
+                colors = SliderDefaults.colors(
+                  thumbColor = SummerPrimaryContainer,
+                  activeTrackColor = SummerPrimaryContainer,
+                  inactiveTrackColor = SummerSurfaceBright
+                )
+              )
             }
-          )
+          }
+
+          // Minimum Session Links Slider
+          Surface(
+            color = SummerSurfaceDim,
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, SummerBorderSubtle),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                Text(
+                  text = "Minimum Links in Session",
+                  style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                  color = SummerTextPrimary
+                )
+                Surface(
+                  color = SummerPrimaryContainer.copy(alpha = 0.18f),
+                  shape = RoundedCornerShape(6.dp)
+                ) {
+                  Text(
+                    text = "${settings.autoPodcastMinLinks} links",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = SummerPrimaryContainer,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                  )
+                }
+              }
+              Spacer(modifier = Modifier.height(4.dp))
+              Text(
+                text = "Only trigger silent podcast generation if at least this many unread links were collected.",
+                style = MaterialTheme.typography.bodySmall,
+                color = SummerTextSecondary
+              )
+              Spacer(modifier = Modifier.height(6.dp))
+              Slider(
+                value = settings.autoPodcastMinLinks.toFloat(),
+                onValueChange = { onUpdateSettings { s -> s.copy(autoPodcastMinLinks = it.roundToInt()) } },
+                valueRange = 1f..8f,
+                steps = 6,
+                colors = SliderDefaults.colors(
+                  thumbColor = SummerPrimaryContainer,
+                  activeTrackColor = SummerPrimaryContainer,
+                  inactiveTrackColor = SummerSurfaceBright
+                )
+              )
+            }
+          }
         }
       }
     }
 
-    // Podcast Hosts, Language & Voice Engine Card
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-      Column(modifier = Modifier.padding(16.dp)) {
-        Text(
-          text = "🎙️ Podcast Hosts, Language & Voices",
-          style = MaterialTheme.typography.titleMedium,
-          fontWeight = FontWeight.Bold
-        )
-        Text(
-          text = "Choose podcast language, 2 or 3 hosts, randomized or custom voices, and your TTS engine.",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(12.dp))
+    // -------------------------------------------------------------
+    // Section 2: Podcast Hosts, Language & Voices
+    // -------------------------------------------------------------
+    SettingsSectionCard(
+      title = "Podcast Hosts, Language & Voices",
+      subtitle = "Choose podcast language, 2 or 3 hosts, randomized or custom voices, and your TTS engine.",
+      icon = Icons.Default.RecordVoiceOver
+    ) {
+      // Format & Style
+      Text(
+        text = "PODCAST FORMAT & STYLE",
+        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+        color = SummerTextSecondary
+      )
+      Spacer(modifier = Modifier.height(6.dp))
+      Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        PodcastStyle.entries.forEach { style ->
+          val isSelected = settings.podcastStyle == style
+          FilterChip(
+            selected = isSelected,
+            onClick = { onUpdateSettings { it.copy(podcastStyle = style) } },
+            label = {
+              Text(
+                text = if (style == PodcastStyle.MKBHD_WAVEFORM) "🎙️ Waveform (MKBHD)" else "☀️ Standard Briefing",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
+              )
+            },
+            colors = FilterChipDefaults.filterChipColors(
+              selectedContainerColor = SummerPrimaryContainer.copy(alpha = 0.22f),
+              selectedLabelColor = SummerPrimaryContainer,
+              containerColor = SummerSurfaceDim,
+              labelColor = SummerTextSecondary
+            ),
+            border = FilterChipDefaults.filterChipBorder(
+              enabled = true,
+              selected = isSelected,
+              borderColor = if (isSelected) SummerPrimaryContainer else SummerBorderSubtle
+            )
+          )
+        }
+      }
+      Spacer(modifier = Modifier.height(4.dp))
+      Text(
+        text = settings.podcastStyle.subtitle,
+        style = MaterialTheme.typography.bodySmall,
+        color = SummerPrimaryContainer
+      )
 
-        // Podcast Format & Style
-        Text(
-          text = "Podcast Format & Style",
-          style = MaterialTheme.typography.labelLarge,
-          fontWeight = FontWeight.SemiBold
-        )
+      HorizontalDivider(
+        color = SummerBorderSubtle,
+        modifier = Modifier.padding(vertical = 12.dp)
+      )
+
+      // Episode Language
+      Text(
+        text = "EPISODE LANGUAGE",
+        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+        color = SummerTextSecondary
+      )
+      Spacer(modifier = Modifier.height(6.dp))
+      Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        PodcastLanguage.entries.forEach { lang ->
+          val isSelected = settings.podcastLanguage == lang
+          FilterChip(
+            selected = isSelected,
+            onClick = { onUpdateSettings { it.copy(podcastLanguage = lang) } },
+            label = {
+              Text(
+                text = lang.displayName,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
+              )
+            },
+            colors = FilterChipDefaults.filterChipColors(
+              selectedContainerColor = SummerPrimaryContainer.copy(alpha = 0.22f),
+              selectedLabelColor = SummerPrimaryContainer,
+              containerColor = SummerSurfaceDim,
+              labelColor = SummerTextSecondary
+            ),
+            border = FilterChipDefaults.filterChipBorder(
+              enabled = true,
+              selected = isSelected,
+              borderColor = if (isSelected) SummerPrimaryContainer else SummerBorderSubtle
+            )
+          )
+        }
+      }
+      if (settings.podcastLanguage == PodcastLanguage.SWEDISH) {
         Spacer(modifier = Modifier.height(4.dp))
-        Row(
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          modifier = Modifier.fillMaxWidth()
-        ) {
-          PodcastStyle.entries.forEach { style ->
-            FilterChip(
-              selected = settings.podcastStyle == style,
-              onClick = { onUpdateSettings { it.copy(podcastStyle = style) } },
-              label = { Text(if (style == PodcastStyle.MKBHD_WAVEFORM) "🎙️ Waveform (MKBHD)" else "☀️ Standard Briefing") }
+        Text(
+          text = "All saved articles (even English ones) are translated and discussed in natural Swedish.",
+          style = MaterialTheme.typography.bodySmall,
+          color = SummerPrimaryContainer
+        )
+      }
+
+      HorizontalDivider(
+        color = SummerBorderSubtle,
+        modifier = Modifier.padding(vertical = 12.dp)
+      )
+
+      // Host Count
+      Text(
+        text = "NUMBER OF HOSTS",
+        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+        color = SummerTextSecondary
+      )
+      Spacer(modifier = Modifier.height(6.dp))
+      Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        listOf(2 to "2 Hosts (Duo)", 3 to "3 Hosts (Roundtable)").forEach { (count, label) ->
+          val isSelected = settings.podcastHostCount.coerceIn(2, 3) == count
+          FilterChip(
+            selected = isSelected,
+            onClick = { onUpdateSettings { it.copy(podcastHostCount = count) } },
+            label = {
+              Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
+              )
+            },
+            colors = FilterChipDefaults.filterChipColors(
+              selectedContainerColor = SummerPrimaryContainer.copy(alpha = 0.22f),
+              selectedLabelColor = SummerPrimaryContainer,
+              containerColor = SummerSurfaceDim,
+              labelColor = SummerTextSecondary
+            ),
+            border = FilterChipDefaults.filterChipBorder(
+              enabled = true,
+              selected = isSelected,
+              borderColor = if (isSelected) SummerPrimaryContainer else SummerBorderSubtle
+            )
+          )
+        }
+      }
+
+      HorizontalDivider(
+        color = SummerBorderSubtle,
+        modifier = Modifier.padding(vertical = 12.dp)
+      )
+
+      // Randomize Host names & voices
+      SettingsSwitchRow(
+        title = "Randomize host names & voices each episode",
+        subtitle = "Picks contrasting voices and matching ${settings.podcastLanguage.displayName} names automatically for every new episode.",
+        checked = settings.randomizePodcastHosts,
+        onCheckedChange = { enabled ->
+          onUpdateSettings { it.copy(randomizePodcastHosts = enabled) }
+        }
+      )
+
+      AnimatedVisibility(visible = !settings.randomizePodcastHosts) {
+        Column(modifier = Modifier.padding(top = 10.dp)) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+          ) {
+            OutlinedTextField(
+              value = settings.hostAName,
+              onValueChange = { name -> onUpdateSettings { it.copy(hostAName = name) } },
+              label = { Text("Host 1 Name") },
+              singleLine = true,
+              colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = SummerPrimaryContainer,
+                unfocusedBorderColor = SummerBorderSubtle,
+                focusedLabelColor = SummerPrimaryContainer,
+                unfocusedLabelColor = SummerTextSecondary,
+                cursorColor = SummerPrimaryContainer
+              ),
+              modifier = Modifier.weight(1f)
+            )
+            OutlinedTextField(
+              value = settings.hostBName,
+              onValueChange = { name -> onUpdateSettings { it.copy(hostBName = name) } },
+              label = { Text("Host 2 Name") },
+              singleLine = true,
+              colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = SummerPrimaryContainer,
+                unfocusedBorderColor = SummerBorderSubtle,
+                focusedLabelColor = SummerPrimaryContainer,
+                unfocusedLabelColor = SummerTextSecondary,
+                cursorColor = SummerPrimaryContainer
+              ),
+              modifier = Modifier.weight(1f)
+            )
+          }
+          if (settings.podcastHostCount >= 3) {
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+              value = settings.hostCName,
+              onValueChange = { name -> onUpdateSettings { it.copy(hostCName = name) } },
+              label = { Text("Host 3 Name") },
+              singleLine = true,
+              colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = SummerPrimaryContainer,
+                unfocusedBorderColor = SummerBorderSubtle,
+                focusedLabelColor = SummerPrimaryContainer,
+                unfocusedLabelColor = SummerTextSecondary,
+                cursorColor = SummerPrimaryContainer
+              ),
+              modifier = Modifier.fillMaxWidth()
             )
           }
         }
-        Text(
-          text = settings.podcastStyle.subtitle,
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.primary
-        )
+      }
 
-        Spacer(modifier = Modifier.height(12.dp))
+      HorizontalDivider(
+        color = SummerBorderSubtle,
+        modifier = Modifier.padding(vertical = 12.dp)
+      )
 
-        // Podcast Language (English / Swedish)
-        Text(
-          text = "Podcast Episode Language",
-          style = MaterialTheme.typography.labelLarge,
-          fontWeight = FontWeight.SemiBold
+      // TTS Providers List
+      Text(
+        text = "VOICE SYNTHESIS ENGINE",
+        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+        color = SummerTextSecondary
+      )
+      Spacer(modifier = Modifier.height(8.dp))
+
+      PodcastTtsProvider.entries.forEach { ttsProvider ->
+        SettingsRadioCard(
+          selected = settings.podcastTtsProvider == ttsProvider,
+          title = ttsProvider.displayName,
+          subtitle = ttsProvider.subtitle,
+          onClick = { onUpdateSettings { it.copy(podcastTtsProvider = ttsProvider) } },
+          badgeText = if (ttsProvider == PodcastTtsProvider.GEMINI_MULTISPEAKER) "Recommended" else null
         )
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          modifier = Modifier.fillMaxWidth()
-        ) {
-          PodcastLanguage.entries.forEach { lang ->
-            FilterChip(
-              selected = settings.podcastLanguage == lang,
-              onClick = { onUpdateSettings { it.copy(podcastLanguage = lang) } },
-              label = { Text(lang.displayName) }
-            )
-          }
+      }
+
+      Spacer(modifier = Modifier.height(10.dp))
+
+      // Fallback Switch
+      SettingsSwitchRow(
+        title = "Auto-fallback to On-Device Multi-Voice TTS",
+        subtitle = "If a cloud TTS key isn't configured yet or rate-limits, automatically fall back to free offline Android multi-voice synthesis.",
+        checked = settings.fallbackToOnDeviceTts,
+        onCheckedChange = { enabled ->
+          onUpdateSettings { it.copy(fallbackToOnDeviceTts = enabled) }
         }
-        if (settings.podcastLanguage == PodcastLanguage.SWEDISH) {
+      )
+
+      HorizontalDivider(
+        color = SummerBorderSubtle,
+        modifier = Modifier.padding(vertical = 12.dp)
+      )
+
+      val isThreeHosts = settings.podcastHostCount >= 3
+
+      // Active TTS Provider Configuration Details
+      when (settings.podcastTtsProvider) {
+        PodcastTtsProvider.GEMINI_MULTISPEAKER -> {
+          val resolvedVoiceA = GeminiCatalog.resolveValidVoice(settings.geminiHostAVoice, "Puck")
+          val resolvedVoiceB = GeminiCatalog.resolveValidVoice(settings.geminiHostBVoice, "Kore")
+          val resolvedVoiceC = GeminiCatalog.resolveValidVoice(settings.geminiHostCVoice, "Aoede")
+          val voiceOptions = remember {
+            GeminiCatalog.PREBUILT_VOICES.map { it.name to it.displayLabel }
+          }
+          val ttsModelOptions = remember { GeminiCatalog.TTS_MODELS }
+
           Text(
-            text = "All saved articles (even English ones) are translated and discussed in natural Swedish.",
+            text = "Gemini Multi-Speaker TTS (Free via Google AI Studio)",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = SummerTextPrimary
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          Text(
+            text = "Uses Google's native multiSpeakerVoiceConfig across all 30 official Gemini studio voices in English and Swedish.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary
+            color = SummerTextSecondary
           )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Number of Hosts (2 or 3)
-        Text(
-          text = "Number of Podcast Hosts",
-          style = MaterialTheme.typography.labelLarge,
-          fontWeight = FontWeight.SemiBold
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          modifier = Modifier.fillMaxWidth()
-        ) {
-          listOf(2 to "2 Hosts (Duo)", 3 to "3 Hosts (Roundtable)").forEach { (count, label) ->
-            FilterChip(
-              selected = settings.podcastHostCount.coerceIn(2, 3) == count,
-              onClick = { onUpdateSettings { it.copy(podcastHostCount = count) } },
-              label = { Text(label) }
-            )
-          }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Randomize names & voices toggle
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-          Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(
-              text = "Randomize host names & voices each episode",
-              style = MaterialTheme.typography.bodyMedium,
-              fontWeight = FontWeight.SemiBold
-            )
-            Text(
-              text = "Picks contrasting voices and matching ${settings.podcastLanguage.displayName} names automatically for every new episode.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-          }
-          Switch(
-            checked = settings.randomizePodcastHosts,
-            onCheckedChange = { enabled ->
-              onUpdateSettings { it.copy(randomizePodcastHosts = enabled) }
-            }
+          Spacer(modifier = Modifier.height(10.dp))
+          OutlinedTextField(
+            value = settings.directGeminiApiKey,
+            onValueChange = { value ->
+              onUpdateSettings { it.copy(directGeminiApiKey = value) }
+            },
+            label = { Text("Google AI Studio API Key") },
+            placeholder = { Text("AIzaSy...") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = SummerPrimaryContainer,
+              unfocusedBorderColor = SummerBorderSubtle,
+              focusedLabelColor = SummerPrimaryContainer,
+              unfocusedLabelColor = SummerTextSecondary,
+              cursorColor = SummerPrimaryContainer
+            ),
+            visualTransformation = if (showDirectGeminiKey) {
+              VisualTransformation.None
+            } else {
+              PasswordVisualTransformation()
+            },
+            trailingIcon = {
+              IconButton(onClick = { showDirectGeminiKey = !showDirectGeminiKey }) {
+                Icon(
+                  imageVector = if (showDirectGeminiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                  contentDescription = "Toggle API key visibility",
+                  tint = SummerTextSecondary
+                )
+              }
+            },
+            modifier = Modifier.fillMaxWidth()
           )
-        }
-
-        AnimatedVisibility(visible = !settings.randomizePodcastHosts) {
-          Column(modifier = Modifier.padding(top = 10.dp)) {
+          if (!settings.randomizePodcastHosts) {
+            Spacer(modifier = Modifier.height(10.dp))
             Row(
               modifier = Modifier.fillMaxWidth(),
               horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-              OutlinedTextField(
-                value = settings.hostAName,
-                onValueChange = { name -> onUpdateSettings { it.copy(hostAName = name) } },
-                label = { Text("Host 1 Name") },
-                singleLine = true,
+              SettingsDropdownSelector(
+                label = "${settings.hostAName.ifBlank { "Host 1" }} Voice",
+                selectedValue = resolvedVoiceA,
+                selectedDisplay = GeminiCatalog.PREBUILT_VOICES
+                  .firstOrNull { it.name == resolvedVoiceA }?.displayLabel ?: resolvedVoiceA,
+                options = voiceOptions,
+                onSelect = { chosen ->
+                  onUpdateSettings { it.copy(geminiHostAVoice = chosen) }
+                },
                 modifier = Modifier.weight(1f)
               )
-              OutlinedTextField(
-                value = settings.hostBName,
-                onValueChange = { name -> onUpdateSettings { it.copy(hostBName = name) } },
-                label = { Text("Host 2 Name") },
-                singleLine = true,
+              SettingsDropdownSelector(
+                label = "${settings.hostBName.ifBlank { "Host 2" }} Voice",
+                selectedValue = resolvedVoiceB,
+                selectedDisplay = GeminiCatalog.PREBUILT_VOICES
+                  .firstOrNull { it.name == resolvedVoiceB }?.displayLabel ?: resolvedVoiceB,
+                options = voiceOptions,
+                onSelect = { chosen ->
+                  onUpdateSettings { it.copy(geminiHostBVoice = chosen) }
+                },
                 modifier = Modifier.weight(1f)
               )
             }
-            if (settings.podcastHostCount >= 3) {
+            if (isThreeHosts) {
+              Spacer(modifier = Modifier.height(8.dp))
+              SettingsDropdownSelector(
+                label = "${settings.hostCName.ifBlank { "Host 3" }} Voice",
+                selectedValue = resolvedVoiceC,
+                selectedDisplay = GeminiCatalog.PREBUILT_VOICES
+                  .firstOrNull { it.name == resolvedVoiceC }?.displayLabel ?: resolvedVoiceC,
+                options = voiceOptions,
+                onSelect = { chosen ->
+                  onUpdateSettings { it.copy(geminiHostCVoice = chosen) }
+                },
+                modifier = Modifier.fillMaxWidth()
+              )
+            }
+          }
+          Spacer(modifier = Modifier.height(10.dp))
+          SettingsDropdownSelector(
+            label = "Gemini Multi-Speaker TTS Model",
+            selectedValue = settings.geminiTtsModel,
+            selectedDisplay = ttsModelOptions
+              .firstOrNull { it.first == settings.geminiTtsModel }?.second
+              ?: settings.geminiTtsModel,
+            options = ttsModelOptions,
+            onSelect = { chosenModel ->
+              onUpdateSettings { it.copy(geminiTtsModel = chosenModel) }
+            },
+            modifier = Modifier.fillMaxWidth()
+          )
+          Spacer(modifier = Modifier.height(12.dp))
+          FilledTonalButton(
+            enabled = !verification.isVerifyingTts,
+            onClick = onVerifyGeminiTts,
+            colors = ButtonDefaults.filledTonalButtonColors(
+              containerColor = SummerPrimaryContainer.copy(alpha = 0.2f),
+              contentColor = SummerPrimaryContainer
+            )
+          ) {
+            if (verification.isVerifyingTts) {
+              CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = SummerPrimaryContainer)
+              Spacer(Modifier.width(8.dp))
+              Text("Testing Multi-Speaker TTS...", color = SummerPrimaryContainer)
+            } else {
+              Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp), tint = SummerPrimaryContainer)
+              Spacer(Modifier.width(6.dp))
+              Text("Verify Multi-Speaker TTS", color = SummerPrimaryContainer)
+            }
+          }
+          verification.ttsMessage?.let { msg ->
+            Spacer(modifier = Modifier.height(8.dp))
+            VerificationStatusBox(message = msg, isError = verification.ttsIsError)
+          }
+        }
+
+        PodcastTtsProvider.ANDROID_ON_DEVICE -> {
+          AndroidOnDeviceTtsSettingsSection(
+            settings = settings,
+            onUpdateSettings = onUpdateSettings
+          )
+        }
+
+        PodcastTtsProvider.AZURE_SPEECH -> {
+          Text(
+            text = "Microsoft Azure AI Speech (500,000 Free Neural Chars/Month)",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = SummerTextPrimary
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          Text(
+            text = "Azure Speech F0 tier offers 500,000 free neural characters every month perpetually and supports multi-voice SSML in English and Swedish.",
+            style = MaterialTheme.typography.bodySmall,
+            color = SummerTextSecondary
+          )
+          Spacer(modifier = Modifier.height(10.dp))
+          OutlinedTextField(
+            value = settings.azureSpeechKey,
+            onValueChange = { v -> onUpdateSettings { it.copy(azureSpeechKey = v) } },
+            label = { Text("Azure Speech Subscription Key") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = SummerPrimaryContainer,
+              unfocusedBorderColor = SummerBorderSubtle,
+              focusedLabelColor = SummerPrimaryContainer,
+              unfocusedLabelColor = SummerTextSecondary,
+              cursorColor = SummerPrimaryContainer
+            ),
+            visualTransformation = if (showAzureKey) {
+              VisualTransformation.None
+            } else {
+              PasswordVisualTransformation()
+            },
+            trailingIcon = {
+              IconButton(onClick = { showAzureKey = !showAzureKey }) {
+                Icon(
+                  imageVector = if (showAzureKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                  contentDescription = "Toggle key visibility",
+                  tint = SummerTextSecondary
+                )
+              }
+            },
+            modifier = Modifier.fillMaxWidth()
+          )
+          Spacer(modifier = Modifier.height(8.dp))
+          OutlinedTextField(
+            value = settings.azureSpeechRegion,
+            onValueChange = { v -> onUpdateSettings { it.copy(azureSpeechRegion = v) } },
+            label = { Text("Azure Region (e.g. eastus, westeurope, swedencentral)") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = SummerPrimaryContainer,
+              unfocusedBorderColor = SummerBorderSubtle,
+              focusedLabelColor = SummerPrimaryContainer,
+              unfocusedLabelColor = SummerTextSecondary,
+              cursorColor = SummerPrimaryContainer
+            ),
+            modifier = Modifier.fillMaxWidth()
+          )
+          if (!settings.randomizePodcastHosts) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+              OutlinedTextField(
+                value = settings.azureHostAVoice,
+                onValueChange = { v -> onUpdateSettings { it.copy(azureHostAVoice = v) } },
+                label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Neural Voice") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                  focusedBorderColor = SummerPrimaryContainer,
+                  unfocusedBorderColor = SummerBorderSubtle,
+                  focusedLabelColor = SummerPrimaryContainer,
+                  unfocusedLabelColor = SummerTextSecondary,
+                  cursorColor = SummerPrimaryContainer
+                ),
+                modifier = Modifier.weight(1f)
+              )
+              OutlinedTextField(
+                value = settings.azureHostBVoice,
+                onValueChange = { v -> onUpdateSettings { it.copy(azureHostBVoice = v) } },
+                label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Neural Voice") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                  focusedBorderColor = SummerPrimaryContainer,
+                  unfocusedBorderColor = SummerBorderSubtle,
+                  focusedLabelColor = SummerPrimaryContainer,
+                  unfocusedLabelColor = SummerTextSecondary,
+                  cursorColor = SummerPrimaryContainer
+                ),
+                modifier = Modifier.weight(1f)
+              )
+            }
+            if (isThreeHosts) {
               Spacer(modifier = Modifier.height(8.dp))
               OutlinedTextField(
-                value = settings.hostCName,
-                onValueChange = { name -> onUpdateSettings { it.copy(hostCName = name) } },
-                label = { Text("Host 3 Name") },
+                value = settings.azureHostCVoice,
+                onValueChange = { v -> onUpdateSettings { it.copy(azureHostCVoice = v) } },
+                label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Neural Voice") },
                 singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                  focusedBorderColor = SummerPrimaryContainer,
+                  unfocusedBorderColor = SummerBorderSubtle,
+                  focusedLabelColor = SummerPrimaryContainer,
+                  unfocusedLabelColor = SummerTextSecondary,
+                  cursorColor = SummerPrimaryContainer
+                ),
                 modifier = Modifier.fillMaxWidth()
               )
             }
           }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-        HorizontalDivider()
-        Spacer(modifier = Modifier.height(12.dp))
-
-        PodcastTtsProvider.entries.forEach { ttsProvider ->
-          val isSelected = settings.podcastTtsProvider == ttsProvider
-          Card(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(vertical = 4.dp)
-              .clickable {
-                onUpdateSettings { it.copy(podcastTtsProvider = ttsProvider) }
-              },
-            colors = CardDefaults.cardColors(
-              containerColor = if (isSelected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-              } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-              }
-            )
-          ) {
-            Row(
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-              verticalAlignment = Alignment.CenterVertically
-            ) {
-              RadioButton(
-                selected = isSelected,
-                onClick = { onUpdateSettings { it.copy(podcastTtsProvider = ttsProvider) } }
-              )
-              Spacer(modifier = Modifier.width(8.dp))
-              Column(modifier = Modifier.weight(1f)) {
-                Text(
-                  text = ttsProvider.displayName,
-                  style = MaterialTheme.typography.titleSmall,
-                  fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                  text = ttsProvider.subtitle,
-                  style = MaterialTheme.typography.bodySmall,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-              }
-            }
-          }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-          Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(
-              text = "Auto-fallback to On-Device Multi-Voice TTS",
-              style = MaterialTheme.typography.bodyMedium,
-              fontWeight = FontWeight.SemiBold
-            )
-            Text(
-              text = "If a cloud TTS key isn't configured yet or rate-limits, automatically fall back to free offline Android multi-voice synthesis.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-          }
-          Switch(
-            checked = settings.fallbackToOnDeviceTts,
-            onCheckedChange = { enabled ->
-              onUpdateSettings { it.copy(fallbackToOnDeviceTts = enabled) }
-            }
+        PodcastTtsProvider.ELEVENLABS -> {
+          Text(
+            text = "ElevenLabs Neural TTS",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = SummerTextPrimary
           )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-        HorizontalDivider()
-        Spacer(modifier = Modifier.height(12.dp))
-
-        val isThreeHosts = settings.podcastHostCount >= 3
-
-        when (settings.podcastTtsProvider) {
-          PodcastTtsProvider.GEMINI_MULTISPEAKER -> {
-            val resolvedVoiceA = GeminiCatalog.resolveValidVoice(settings.geminiHostAVoice, "Puck")
-            val resolvedVoiceB = GeminiCatalog.resolveValidVoice(settings.geminiHostBVoice, "Kore")
-            val resolvedVoiceC = GeminiCatalog.resolveValidVoice(settings.geminiHostCVoice, "Aoede")
-            val voiceOptions = remember {
-              GeminiCatalog.PREBUILT_VOICES.map { it.name to it.displayLabel }
-            }
-            val ttsModelOptions = remember { GeminiCatalog.TTS_MODELS }
-
-            Text(
-              text = "Gemini Multi-Speaker TTS (Free via Google AI Studio)",
-              style = MaterialTheme.typography.titleSmall,
-              fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-              text = "Uses Google's native multiSpeakerVoiceConfig across all 30 official Gemini studio voices in English and Swedish.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+          Spacer(modifier = Modifier.height(4.dp))
+          Text(
+            text = "Create a free account at elevenlabs.io (~10,000 free credits/month). Uses eleven_flash_v2_5 by default for fast multilingual synthesis.",
+            style = MaterialTheme.typography.bodySmall,
+            color = SummerTextSecondary
+          )
+          Spacer(modifier = Modifier.height(10.dp))
+          OutlinedTextField(
+            value = settings.elevenLabsApiKey,
+            onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsApiKey = v) } },
+            label = { Text("ElevenLabs API Key (xi-api-key)") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = SummerPrimaryContainer,
+              unfocusedBorderColor = SummerBorderSubtle,
+              focusedLabelColor = SummerPrimaryContainer,
+              unfocusedLabelColor = SummerTextSecondary,
+              cursorColor = SummerPrimaryContainer
+            ),
+            visualTransformation = if (showElevenLabsKey) {
+              VisualTransformation.None
+            } else {
+              PasswordVisualTransformation()
+            },
+            trailingIcon = {
+              IconButton(onClick = { showElevenLabsKey = !showElevenLabsKey }) {
+                Icon(
+                  imageVector = if (showElevenLabsKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                  contentDescription = "Toggle key visibility",
+                  tint = SummerTextSecondary
+                )
+              }
+            },
+            modifier = Modifier.fillMaxWidth()
+          )
+          if (!settings.randomizePodcastHosts) {
             Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-              value = settings.directGeminiApiKey,
-              onValueChange = { value ->
-                onUpdateSettings { it.copy(directGeminiApiKey = value) }
-              },
-              label = { Text("Google AI Studio API Key") },
-              placeholder = { Text("AIzaSy...") },
-              singleLine = true,
-              visualTransformation = if (showDirectGeminiKey) {
-                VisualTransformation.None
-              } else {
-                PasswordVisualTransformation()
-              },
-              trailingIcon = {
-                IconButton(onClick = { showDirectGeminiKey = !showDirectGeminiKey }) {
-                  Icon(
-                    imageVector = if (showDirectGeminiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    contentDescription = "Toggle API key visibility"
-                  )
-                }
-              },
-              modifier = Modifier.fillMaxWidth()
-            )
-            if (!settings.randomizePodcastHosts) {
-              Spacer(modifier = Modifier.height(10.dp))
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-              ) {
-                SettingsDropdownSelector(
-                  label = "${settings.hostAName.ifBlank { "Host 1" }} Voice",
-                  selectedValue = resolvedVoiceA,
-                  selectedDisplay = GeminiCatalog.PREBUILT_VOICES
-                    .firstOrNull { it.name == resolvedVoiceA }?.displayLabel ?: resolvedVoiceA,
-                  options = voiceOptions,
-                  onSelect = { chosen ->
-                    onUpdateSettings { it.copy(geminiHostAVoice = chosen) }
-                  },
-                  modifier = Modifier.weight(1f)
-                )
-                SettingsDropdownSelector(
-                  label = "${settings.hostBName.ifBlank { "Host 2" }} Voice",
-                  selectedValue = resolvedVoiceB,
-                  selectedDisplay = GeminiCatalog.PREBUILT_VOICES
-                    .firstOrNull { it.name == resolvedVoiceB }?.displayLabel ?: resolvedVoiceB,
-                  options = voiceOptions,
-                  onSelect = { chosen ->
-                    onUpdateSettings { it.copy(geminiHostBVoice = chosen) }
-                  },
-                  modifier = Modifier.weight(1f)
-                )
-              }
-              if (isThreeHosts) {
-                Spacer(modifier = Modifier.height(8.dp))
-                SettingsDropdownSelector(
-                  label = "${settings.hostCName.ifBlank { "Host 3" }} Voice",
-                  selectedValue = resolvedVoiceC,
-                  selectedDisplay = GeminiCatalog.PREBUILT_VOICES
-                    .firstOrNull { it.name == resolvedVoiceC }?.displayLabel ?: resolvedVoiceC,
-                  options = voiceOptions,
-                  onSelect = { chosen ->
-                    onUpdateSettings { it.copy(geminiHostCVoice = chosen) }
-                  },
-                  modifier = Modifier.fillMaxWidth()
-                )
-              }
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            SettingsDropdownSelector(
-              label = "Gemini Multi-Speaker TTS Model",
-              selectedValue = settings.geminiTtsModel,
-              selectedDisplay = ttsModelOptions
-                .firstOrNull { it.first == settings.geminiTtsModel }?.second
-                ?: settings.geminiTtsModel,
-              options = ttsModelOptions,
-              onSelect = { chosenModel ->
-                onUpdateSettings { it.copy(geminiTtsModel = chosenModel) }
-              },
-              modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(10.dp))
             Row(
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.spacedBy(8.dp)
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-              FilledTonalButton(
-                enabled = !verification.isVerifyingTts,
-                onClick = onVerifyGeminiTts
-              ) {
-                if (verification.isVerifyingTts) {
-                  CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                  Spacer(Modifier.width(8.dp))
-                  Text("Testing Multi-Speaker TTS...")
-                } else {
-                  Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                  Spacer(Modifier.width(6.dp))
-                  Text("Verify Multi-Speaker TTS")
-                }
-              }
-            }
-            verification.ttsMessage?.let { msg ->
-              Spacer(modifier = Modifier.height(8.dp))
-              VerificationStatusBox(message = msg, isError = verification.ttsIsError)
-            }
-          }
-
-          PodcastTtsProvider.ANDROID_ON_DEVICE -> {
-            AndroidOnDeviceTtsSettingsSection(
-              settings = settings,
-              onUpdateSettings = onUpdateSettings
-            )
-          }
-
-          PodcastTtsProvider.AZURE_SPEECH -> {
-            Text(
-              text = "Microsoft Azure AI Speech (500,000 Free Neural Chars/Month)",
-              style = MaterialTheme.typography.titleSmall,
-              fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-              text = "Azure Speech F0 tier offers 500,000 free neural characters every month perpetually and supports multi-voice SSML in English and Swedish.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-              value = settings.azureSpeechKey,
-              onValueChange = { v -> onUpdateSettings { it.copy(azureSpeechKey = v) } },
-              label = { Text("Azure Speech Subscription Key") },
-              singleLine = true,
-              visualTransformation = if (showAzureKey) {
-                VisualTransformation.None
-              } else {
-                PasswordVisualTransformation()
-              },
-              trailingIcon = {
-                IconButton(onClick = { showAzureKey = !showAzureKey }) {
-                  Icon(
-                    imageVector = if (showAzureKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    contentDescription = "Toggle key visibility"
-                  )
-                }
-              },
-              modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-              value = settings.azureSpeechRegion,
-              onValueChange = { v -> onUpdateSettings { it.copy(azureSpeechRegion = v) } },
-              label = { Text("Azure Region (e.g. eastus, westeurope, swedencentral)") },
-              singleLine = true,
-              modifier = Modifier.fillMaxWidth()
-            )
-            if (!settings.randomizePodcastHosts) {
-              Spacer(modifier = Modifier.height(8.dp))
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-              ) {
-                OutlinedTextField(
-                  value = settings.azureHostAVoice,
-                  onValueChange = { v -> onUpdateSettings { it.copy(azureHostAVoice = v) } },
-                  label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Neural Voice") },
-                  singleLine = true,
-                  modifier = Modifier.weight(1f)
-                )
-                OutlinedTextField(
-                  value = settings.azureHostBVoice,
-                  onValueChange = { v -> onUpdateSettings { it.copy(azureHostBVoice = v) } },
-                  label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Neural Voice") },
-                  singleLine = true,
-                  modifier = Modifier.weight(1f)
-                )
-              }
-              if (isThreeHosts) {
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                  value = settings.azureHostCVoice,
-                  onValueChange = { v -> onUpdateSettings { it.copy(azureHostCVoice = v) } },
-                  label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Neural Voice") },
-                  singleLine = true,
-                  modifier = Modifier.fillMaxWidth()
-                )
-              }
-            }
-          }
-
-          PodcastTtsProvider.ELEVENLABS -> {
-            Text(
-              text = "ElevenLabs Neural TTS",
-              style = MaterialTheme.typography.titleSmall,
-              fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-              text = "Create a free account at elevenlabs.io (~10,000 free credits/month). Uses eleven_flash_v2_5 by default for fast multilingual synthesis.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-              value = settings.elevenLabsApiKey,
-              onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsApiKey = v) } },
-              label = { Text("ElevenLabs API Key (xi-api-key)") },
-              singleLine = true,
-              visualTransformation = if (showElevenLabsKey) {
-                VisualTransformation.None
-              } else {
-                PasswordVisualTransformation()
-              },
-              trailingIcon = {
-                IconButton(onClick = { showElevenLabsKey = !showElevenLabsKey }) {
-                  Icon(
-                    imageVector = if (showElevenLabsKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    contentDescription = "Toggle key visibility"
-                  )
-                }
-              },
-              modifier = Modifier.fillMaxWidth()
-            )
-            if (!settings.randomizePodcastHosts) {
-              Spacer(modifier = Modifier.height(8.dp))
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-              ) {
-                OutlinedTextField(
-                  value = settings.elevenLabsHostAVoiceId,
-                  onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostAVoiceId = v) } },
-                  label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Voice ID") },
-                  singleLine = true,
-                  modifier = Modifier.weight(1f)
-                )
-                OutlinedTextField(
-                  value = settings.elevenLabsHostBVoiceId,
-                  onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostBVoiceId = v) } },
-                  label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Voice ID") },
-                  singleLine = true,
-                  modifier = Modifier.weight(1f)
-                )
-              }
-              if (isThreeHosts) {
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                  value = settings.elevenLabsHostCVoiceId,
-                  onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostCVoiceId = v) } },
-                  label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Voice ID") },
-                  singleLine = true,
-                  modifier = Modifier.fillMaxWidth()
-                )
-              }
-            }
-          }
-
-          PodcastTtsProvider.OPENAI_COMPATIBLE_TTS -> {
-            Text(
-              text = "OpenAI / Kokoro / Custom /v1/audio/speech",
-              style = MaterialTheme.typography.titleSmall,
-              fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-              text = "Supports OpenAI Audio (gpt-4o-mini-tts / tts-1 with voices like onyx, nova, shimmer) or free self-hosted Kokoro-FastAPI / Groq endpoints.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-              value = settings.openAiTtsBaseUrl,
-              onValueChange = { v -> onUpdateSettings { it.copy(openAiTtsBaseUrl = v) } },
-              label = { Text("TTS Base URL") },
-              placeholder = { Text("https://api.openai.com/v1") },
-              singleLine = true,
-              modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-              value = settings.openAiTtsApiKey,
-              onValueChange = { v -> onUpdateSettings { it.copy(openAiTtsApiKey = v) } },
-              label = { Text("TTS API Key (leave blank to reuse OpenAI Chat key)") },
-              singleLine = true,
-              visualTransformation = if (showOpenAiKey) {
-                VisualTransformation.None
-              } else {
-                PasswordVisualTransformation()
-              },
-              trailingIcon = {
-                IconButton(onClick = { showOpenAiKey = !showOpenAiKey }) {
-                  Icon(
-                    imageVector = if (showOpenAiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    contentDescription = "Toggle key visibility"
-                  )
-                }
-              },
-              modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-              value = settings.openAiTtsModel,
-              onValueChange = { v -> onUpdateSettings { it.copy(openAiTtsModel = v) } },
-              label = { Text("TTS Model") },
-              placeholder = { Text("gpt-4o-mini-tts / tts-1 / kokoro") },
-              singleLine = true,
-              modifier = Modifier.fillMaxWidth()
-            )
-            if (!settings.randomizePodcastHosts) {
-              Spacer(modifier = Modifier.height(8.dp))
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-              ) {
-                OutlinedTextField(
-                  value = settings.openAiHostAVoice,
-                  onValueChange = { v -> onUpdateSettings { it.copy(openAiHostAVoice = v) } },
-                  label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Voice") },
-                  placeholder = { Text("onyx") },
-                  singleLine = true,
-                  modifier = Modifier.weight(1f)
-                )
-                OutlinedTextField(
-                  value = settings.openAiHostBVoice,
-                  onValueChange = { v -> onUpdateSettings { it.copy(openAiHostBVoice = v) } },
-                  label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Voice") },
-                  placeholder = { Text("nova") },
-                  singleLine = true,
-                  modifier = Modifier.weight(1f)
-                )
-              }
-              if (isThreeHosts) {
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                  value = settings.openAiHostCVoice,
-                  onValueChange = { v -> onUpdateSettings { it.copy(openAiHostCVoice = v) } },
-                  label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Voice") },
-                  placeholder = { Text("shimmer") },
-                  singleLine = true,
-                  modifier = Modifier.fillMaxWidth()
-                )
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // AI Backend Selection Card
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-      Column(modifier = Modifier.padding(16.dp)) {
-        Text(
-          text = "AI Summarization & Scripting Provider",
-          style = MaterialTheme.typography.titleMedium,
-          fontWeight = FontWeight.Bold
-        )
-        Text(
-          text = "Choose which AI backend Summer uses to summarize saved websites and write podcast scripts.",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
-        AiBackend.entries.forEach { backend ->
-          val isSelected = settings.selectedBackend == backend
-          Card(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(vertical = 4.dp)
-              .clickable {
-                onUpdateSettings { it.copy(selectedBackend = backend) }
-              },
-            colors = CardDefaults.cardColors(
-              containerColor = if (isSelected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-              } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-              }
-            )
-          ) {
-            Row(
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-              verticalAlignment = Alignment.CenterVertically
-            ) {
-              RadioButton(
-                selected = isSelected,
-                onClick = { onUpdateSettings { it.copy(selectedBackend = backend) } }
+              OutlinedTextField(
+                value = settings.elevenLabsHostAVoiceId,
+                onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostAVoiceId = v) } },
+                label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Voice ID") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                  focusedBorderColor = SummerPrimaryContainer,
+                  unfocusedBorderColor = SummerBorderSubtle,
+                  focusedLabelColor = SummerPrimaryContainer,
+                  unfocusedLabelColor = SummerTextSecondary,
+                  cursorColor = SummerPrimaryContainer
+                ),
+                modifier = Modifier.weight(1f)
               )
-              Spacer(modifier = Modifier.width(8.dp))
-              Column(modifier = Modifier.weight(1f)) {
-                Text(
-                  text = backend.displayName,
-                  style = MaterialTheme.typography.titleSmall,
-                  fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                  text = backend.subtitle,
-                  style = MaterialTheme.typography.bodySmall,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-              }
+              OutlinedTextField(
+                value = settings.elevenLabsHostBVoiceId,
+                onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostBVoiceId = v) } },
+                label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Voice ID") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                  focusedBorderColor = SummerPrimaryContainer,
+                  unfocusedBorderColor = SummerBorderSubtle,
+                  focusedLabelColor = SummerPrimaryContainer,
+                  unfocusedLabelColor = SummerTextSecondary,
+                  cursorColor = SummerPrimaryContainer
+                ),
+                modifier = Modifier.weight(1f)
+              )
+            }
+            if (isThreeHosts) {
+              Spacer(modifier = Modifier.height(8.dp))
+              OutlinedTextField(
+                value = settings.elevenLabsHostCVoiceId,
+                onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostCVoiceId = v) } },
+                label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Voice ID") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                  focusedBorderColor = SummerPrimaryContainer,
+                  unfocusedBorderColor = SummerBorderSubtle,
+                  focusedLabelColor = SummerPrimaryContainer,
+                  unfocusedLabelColor = SummerTextSecondary,
+                  cursorColor = SummerPrimaryContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
+              )
             }
           }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-        HorizontalDivider()
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Provider-specific Configuration Fields
-        when (settings.selectedBackend) {
-          AiBackend.FIREBASE_AI -> {
-            Text(
-              text = "Firebase AI Logic Configuration",
-              style = MaterialTheme.typography.titleSmall,
-              fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-              text = "Connected to Firebase AI Logic (via app/google-services.json).",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            SettingsDropdownSelector(
-              label = "Quick Model Preset",
-              selectedValue = settings.firebaseModel,
-              selectedDisplay = GeminiCatalog.TEXT_MODELS
-                .firstOrNull { it.first == settings.firebaseModel }?.second
-                ?: settings.firebaseModel,
-              options = GeminiCatalog.TEXT_MODELS,
-              onSelect = { chosen ->
-                onUpdateSettings { it.copy(firebaseModel = chosen) }
-              },
-              modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-              value = settings.firebaseModel,
-              onValueChange = { value ->
-                onUpdateSettings { it.copy(firebaseModel = value) }
-              },
-              label = { Text("Gemini Model ID (or enter custom)") },
-              supportingText = { Text("Recommended: gemini-3.8-flash") },
-              singleLine = true,
-              modifier = Modifier.fillMaxWidth()
-            )
-          }
-
-          AiBackend.DIRECT_GEMINI -> {
-            Text(
-              text = "Direct Gemini API (Google AI Studio)",
-              style = MaterialTheme.typography.titleSmall,
-              fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-              value = settings.directGeminiApiKey,
-              onValueChange = { value ->
-                onUpdateSettings { it.copy(directGeminiApiKey = value) }
-              },
-              label = { Text("Google AI Studio API Key") },
-              placeholder = { Text("AIzaSy...") },
-              singleLine = true,
-              visualTransformation = if (showDirectGeminiKey) {
-                VisualTransformation.None
-              } else {
-                PasswordVisualTransformation()
-              },
-              trailingIcon = {
-                IconButton(onClick = { showDirectGeminiKey = !showDirectGeminiKey }) {
-                  Icon(
-                    imageVector = if (showDirectGeminiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    contentDescription = "Toggle API key visibility"
-                  )
-                }
-              },
-              modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            SettingsDropdownSelector(
-              label = "Quick Model Preset",
-              selectedValue = settings.directGeminiModel,
-              selectedDisplay = GeminiCatalog.TEXT_MODELS
-                .firstOrNull { it.first == settings.directGeminiModel }?.second
-                ?: settings.directGeminiModel,
-              options = GeminiCatalog.TEXT_MODELS,
-              onSelect = { chosen ->
-                onUpdateSettings { it.copy(directGeminiModel = chosen) }
-              },
-              modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-              value = settings.directGeminiModel,
-              onValueChange = { value ->
-                onUpdateSettings { it.copy(directGeminiModel = value) }
-              },
-              label = { Text("Gemini Model ID (or enter custom)") },
-              singleLine = true,
-              modifier = Modifier.fillMaxWidth()
-            )
-          }
-
-          AiBackend.GEMINI_NANO_ON_DEVICE -> {
-            Text(
-              text = "On-Device Gemini Nano (Android AICore)",
-              style = MaterialTheme.typography.titleSmall,
-              fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-              text = "Runs 100% locally on your phone via Google AI Edge AICore SDK. Requires a compatible flagship device (e.g., Pixel 8/9/10 series or Galaxy S24/S25+) with AICore enabled in system settings.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-          }
-
-          AiBackend.OPENAI_COMPATIBLE -> {
-            Text(
-              text = "OpenAI / Anthropic / Custom Endpoint",
-              style = MaterialTheme.typography.titleSmall,
-              fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-              value = settings.openAiBaseUrl,
-              onValueChange = { value ->
-                onUpdateSettings { it.copy(openAiBaseUrl = value) }
-              },
-              label = { Text("Base URL") },
-              placeholder = { Text("https://api.openai.com/v1") },
-              singleLine = true,
-              modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-              value = settings.openAiApiKey,
-              onValueChange = { value ->
-                onUpdateSettings { it.copy(openAiApiKey = value) }
-              },
-              label = { Text("API Key") },
-              placeholder = { Text("sk-...") },
-              singleLine = true,
-              visualTransformation = if (showOpenAiKey) {
-                VisualTransformation.None
-              } else {
-                PasswordVisualTransformation()
-              },
-              trailingIcon = {
-                IconButton(onClick = { showOpenAiKey = !showOpenAiKey }) {
-                  Icon(
-                    imageVector = if (showOpenAiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    contentDescription = "Toggle key visibility"
-                  )
-                }
-              },
-              modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-              value = settings.openAiModel,
-              onValueChange = { value ->
-                onUpdateSettings { it.copy(openAiModel = value) }
-              },
-              label = { Text("Model Name") },
-              placeholder = { Text("gpt-4o-mini / claude-3-5-haiku-latest") },
-              singleLine = true,
-              modifier = Modifier.fillMaxWidth()
-            )
-          }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-        FilledTonalButton(
-          enabled = !verification.isVerifyingBackend,
-          onClick = onVerifyTextBackend
-        ) {
-          if (verification.isVerifyingBackend) {
-            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-            Spacer(Modifier.width(8.dp))
-            Text("Testing Model...")
-          } else {
-            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Verify Summarization Model")
-          }
-        }
-        verification.backendMessage?.let { msg ->
+        PodcastTtsProvider.OPENAI_COMPATIBLE_TTS -> {
+          Text(
+            text = "OpenAI / Kokoro / Custom /v1/audio/speech",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = SummerTextPrimary
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          Text(
+            text = "Supports OpenAI Audio (gpt-4o-mini-tts / tts-1 with voices like onyx, nova, shimmer) or free self-hosted Kokoro-FastAPI / Groq endpoints.",
+            style = MaterialTheme.typography.bodySmall,
+            color = SummerTextSecondary
+          )
+          Spacer(modifier = Modifier.height(10.dp))
+          OutlinedTextField(
+            value = settings.openAiTtsBaseUrl,
+            onValueChange = { v -> onUpdateSettings { it.copy(openAiTtsBaseUrl = v) } },
+            label = { Text("TTS Base URL") },
+            placeholder = { Text("https://api.openai.com/v1") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = SummerPrimaryContainer,
+              unfocusedBorderColor = SummerBorderSubtle,
+              focusedLabelColor = SummerPrimaryContainer,
+              unfocusedLabelColor = SummerTextSecondary,
+              cursorColor = SummerPrimaryContainer
+            ),
+            modifier = Modifier.fillMaxWidth()
+          )
           Spacer(modifier = Modifier.height(8.dp))
-          VerificationStatusBox(message = msg, isError = verification.backendIsError)
+          OutlinedTextField(
+            value = settings.openAiTtsApiKey,
+            onValueChange = { v -> onUpdateSettings { it.copy(openAiTtsApiKey = v) } },
+            label = { Text("TTS API Key (leave blank to reuse OpenAI Chat key)") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = SummerPrimaryContainer,
+              unfocusedBorderColor = SummerBorderSubtle,
+              focusedLabelColor = SummerPrimaryContainer,
+              unfocusedLabelColor = SummerTextSecondary,
+              cursorColor = SummerPrimaryContainer
+            ),
+            visualTransformation = if (showOpenAiKey) {
+              VisualTransformation.None
+            } else {
+              PasswordVisualTransformation()
+            },
+            trailingIcon = {
+              IconButton(onClick = { showOpenAiKey = !showOpenAiKey }) {
+                Icon(
+                  imageVector = if (showOpenAiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                  contentDescription = "Toggle key visibility",
+                  tint = SummerTextSecondary
+                )
+              }
+            },
+            modifier = Modifier.fillMaxWidth()
+          )
+          Spacer(modifier = Modifier.height(8.dp))
+          OutlinedTextField(
+            value = settings.openAiTtsModel,
+            onValueChange = { v -> onUpdateSettings { it.copy(openAiTtsModel = v) } },
+            label = { Text("TTS Model") },
+            placeholder = { Text("gpt-4o-mini-tts / tts-1 / kokoro") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = SummerPrimaryContainer,
+              unfocusedBorderColor = SummerBorderSubtle,
+              focusedLabelColor = SummerPrimaryContainer,
+              unfocusedLabelColor = SummerTextSecondary,
+              cursorColor = SummerPrimaryContainer
+            ),
+            modifier = Modifier.fillMaxWidth()
+          )
+          if (!settings.randomizePodcastHosts) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+              OutlinedTextField(
+                value = settings.openAiHostAVoice,
+                onValueChange = { v -> onUpdateSettings { it.copy(openAiHostAVoice = v) } },
+                label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Voice") },
+                placeholder = { Text("onyx") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                  focusedBorderColor = SummerPrimaryContainer,
+                  unfocusedBorderColor = SummerBorderSubtle,
+                  focusedLabelColor = SummerPrimaryContainer,
+                  unfocusedLabelColor = SummerTextSecondary,
+                  cursorColor = SummerPrimaryContainer
+                ),
+                modifier = Modifier.weight(1f)
+              )
+              OutlinedTextField(
+                value = settings.openAiHostBVoice,
+                onValueChange = { v -> onUpdateSettings { it.copy(openAiHostBVoice = v) } },
+                label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Voice") },
+                placeholder = { Text("nova") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                  focusedBorderColor = SummerPrimaryContainer,
+                  unfocusedBorderColor = SummerBorderSubtle,
+                  focusedLabelColor = SummerPrimaryContainer,
+                  unfocusedLabelColor = SummerTextSecondary,
+                  cursorColor = SummerPrimaryContainer
+                ),
+                modifier = Modifier.weight(1f)
+              )
+            }
+            if (isThreeHosts) {
+              Spacer(modifier = Modifier.height(8.dp))
+              OutlinedTextField(
+                value = settings.openAiHostCVoice,
+                onValueChange = { v -> onUpdateSettings { it.copy(openAiHostCVoice = v) } },
+                label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Voice") },
+                placeholder = { Text("shimmer") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                  focusedBorderColor = SummerPrimaryContainer,
+                  unfocusedBorderColor = SummerBorderSubtle,
+                  focusedLabelColor = SummerPrimaryContainer,
+                  unfocusedLabelColor = SummerTextSecondary,
+                  cursorColor = SummerPrimaryContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
+              )
+            }
+          }
         }
       }
     }
 
-    // Google Feed Interception Card
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-      Column(modifier = Modifier.padding(16.dp)) {
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          Column(modifier = Modifier.weight(1f)) {
-            Text(
-              text = "Only Intercept Google Feed URLs",
-              style = MaterialTheme.typography.titleMedium,
-              fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-              text = "When enabled, Summer only saves links coming from the Google Feed (via search.app/share.google shorteners, Discover tracking params, or Google App referrers). All other links will automatically open in your external browser as if Summer was not installed.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-          }
-          Switch(
-            checked = settings.onlyInterceptGoogleFeed,
-            onCheckedChange = { checked ->
-              onUpdateSettings { it.copy(onlyInterceptGoogleFeed = checked) }
-            }
+    // -------------------------------------------------------------
+    // Section 3: AI Intelligence Backend
+    // -------------------------------------------------------------
+    SettingsSectionCard(
+      title = "AI Intelligence Backend",
+      subtitle = "Choose which AI backend Summer uses to summarize saved websites and write podcast scripts.",
+      icon = Icons.Default.Psychology
+    ) {
+      AiBackend.entries.forEach { backend ->
+        SettingsRadioCard(
+          selected = settings.selectedBackend == backend,
+          title = backend.displayName,
+          subtitle = backend.subtitle,
+          onClick = { onUpdateSettings { it.copy(selectedBackend = backend) } },
+          badgeText = if (backend == AiBackend.FIREBASE_AI) "Default" else null
+        )
+      }
+
+      HorizontalDivider(
+        color = SummerBorderSubtle,
+        modifier = Modifier.padding(vertical = 12.dp)
+      )
+
+      // Provider-specific Configuration Fields
+      when (settings.selectedBackend) {
+        AiBackend.FIREBASE_AI -> {
+          Text(
+            text = "Firebase AI Logic Configuration",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = SummerTextPrimary
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          Text(
+            text = "Connected to Firebase AI Logic (via app/google-services.json).",
+            style = MaterialTheme.typography.bodySmall,
+            color = SummerPrimaryContainer
+          )
+          Spacer(modifier = Modifier.height(10.dp))
+          SettingsDropdownSelector(
+            label = "Quick Model Preset",
+            selectedValue = settings.firebaseModel,
+            selectedDisplay = GeminiCatalog.TEXT_MODELS
+              .firstOrNull { it.first == settings.firebaseModel }?.second
+              ?: settings.firebaseModel,
+            options = GeminiCatalog.TEXT_MODELS,
+            onSelect = { chosen ->
+              onUpdateSettings { it.copy(firebaseModel = chosen) }
+            },
+            modifier = Modifier.fillMaxWidth()
+          )
+          Spacer(modifier = Modifier.height(8.dp))
+          OutlinedTextField(
+            value = settings.firebaseModel,
+            onValueChange = { value ->
+              onUpdateSettings { it.copy(firebaseModel = value) }
+            },
+            label = { Text("Gemini Model ID (or enter custom)") },
+            supportingText = { Text("Recommended: gemini-3.8-flash") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = SummerPrimaryContainer,
+              unfocusedBorderColor = SummerBorderSubtle,
+              focusedLabelColor = SummerPrimaryContainer,
+              unfocusedLabelColor = SummerTextSecondary,
+              cursorColor = SummerPrimaryContainer
+            ),
+            modifier = Modifier.fillMaxWidth()
+          )
+        }
+
+        AiBackend.DIRECT_GEMINI -> {
+          Text(
+            text = "Direct Gemini API (Google AI Studio)",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = SummerTextPrimary
+          )
+          Spacer(modifier = Modifier.height(10.dp))
+          OutlinedTextField(
+            value = settings.directGeminiApiKey,
+            onValueChange = { value ->
+              onUpdateSettings { it.copy(directGeminiApiKey = value) }
+            },
+            label = { Text("Google AI Studio API Key") },
+            placeholder = { Text("AIzaSy...") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = SummerPrimaryContainer,
+              unfocusedBorderColor = SummerBorderSubtle,
+              focusedLabelColor = SummerPrimaryContainer,
+              unfocusedLabelColor = SummerTextSecondary,
+              cursorColor = SummerPrimaryContainer
+            ),
+            visualTransformation = if (showDirectGeminiKey) {
+              VisualTransformation.None
+            } else {
+              PasswordVisualTransformation()
+            },
+            trailingIcon = {
+              IconButton(onClick = { showDirectGeminiKey = !showDirectGeminiKey }) {
+                Icon(
+                  imageVector = if (showDirectGeminiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                  contentDescription = "Toggle API key visibility",
+                  tint = SummerTextSecondary
+                )
+              }
+            },
+            modifier = Modifier.fillMaxWidth()
+          )
+          Spacer(modifier = Modifier.height(8.dp))
+          SettingsDropdownSelector(
+            label = "Quick Model Preset",
+            selectedValue = settings.directGeminiModel,
+            selectedDisplay = GeminiCatalog.TEXT_MODELS
+              .firstOrNull { it.first == settings.directGeminiModel }?.second
+              ?: settings.directGeminiModel,
+            options = GeminiCatalog.TEXT_MODELS,
+            onSelect = { chosen ->
+              onUpdateSettings { it.copy(directGeminiModel = chosen) }
+            },
+            modifier = Modifier.fillMaxWidth()
+          )
+          Spacer(modifier = Modifier.height(8.dp))
+          OutlinedTextField(
+            value = settings.directGeminiModel,
+            onValueChange = { value ->
+              onUpdateSettings { it.copy(directGeminiModel = value) }
+            },
+            label = { Text("Gemini Model ID (or enter custom)") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = SummerPrimaryContainer,
+              unfocusedBorderColor = SummerBorderSubtle,
+              focusedLabelColor = SummerPrimaryContainer,
+              unfocusedLabelColor = SummerTextSecondary,
+              cursorColor = SummerPrimaryContainer
+            ),
+            modifier = Modifier.fillMaxWidth()
+          )
+        }
+
+        AiBackend.GEMINI_NANO_ON_DEVICE -> {
+          Text(
+            text = "On-Device Gemini Nano (Android AICore)",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = SummerTextPrimary
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          Text(
+            text = "Runs 100% locally on your phone via Google AI Edge AICore SDK. Requires a compatible flagship device (e.g., Pixel 8/9/10 series or Galaxy S24/S25+) with AICore enabled in system settings.",
+            style = MaterialTheme.typography.bodySmall,
+            color = SummerTextSecondary
+          )
+        }
+
+        AiBackend.OPENAI_COMPATIBLE -> {
+          Text(
+            text = "OpenAI / Anthropic / Custom Endpoint",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = SummerTextPrimary
+          )
+          Spacer(modifier = Modifier.height(10.dp))
+          OutlinedTextField(
+            value = settings.openAiBaseUrl,
+            onValueChange = { value ->
+              onUpdateSettings { it.copy(openAiBaseUrl = value) }
+            },
+            label = { Text("Base URL") },
+            placeholder = { Text("https://api.openai.com/v1") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = SummerPrimaryContainer,
+              unfocusedBorderColor = SummerBorderSubtle,
+              focusedLabelColor = SummerPrimaryContainer,
+              unfocusedLabelColor = SummerTextSecondary,
+              cursorColor = SummerPrimaryContainer
+            ),
+            modifier = Modifier.fillMaxWidth()
+          )
+          Spacer(modifier = Modifier.height(8.dp))
+          OutlinedTextField(
+            value = settings.openAiApiKey,
+            onValueChange = { value ->
+              onUpdateSettings { it.copy(openAiApiKey = value) }
+            },
+            label = { Text("API Key") },
+            placeholder = { Text("sk-...") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = SummerPrimaryContainer,
+              unfocusedBorderColor = SummerBorderSubtle,
+              focusedLabelColor = SummerPrimaryContainer,
+              unfocusedLabelColor = SummerTextSecondary,
+              cursorColor = SummerPrimaryContainer
+            ),
+            visualTransformation = if (showOpenAiKey) {
+              VisualTransformation.None
+            } else {
+              PasswordVisualTransformation()
+            },
+            trailingIcon = {
+              IconButton(onClick = { showOpenAiKey = !showOpenAiKey }) {
+                Icon(
+                  imageVector = if (showOpenAiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                  contentDescription = "Toggle key visibility",
+                  tint = SummerTextSecondary
+                )
+              }
+            },
+            modifier = Modifier.fillMaxWidth()
+          )
+          Spacer(modifier = Modifier.height(8.dp))
+          OutlinedTextField(
+            value = settings.openAiModel,
+            onValueChange = { value ->
+              onUpdateSettings { it.copy(openAiModel = value) }
+            },
+            label = { Text("Model Name") },
+            placeholder = { Text("gpt-4o-mini / claude-3-5-haiku-latest") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = SummerPrimaryContainer,
+              unfocusedBorderColor = SummerBorderSubtle,
+              focusedLabelColor = SummerPrimaryContainer,
+              unfocusedLabelColor = SummerTextSecondary,
+              cursorColor = SummerPrimaryContainer
+            ),
+            modifier = Modifier.fillMaxWidth()
           )
         }
       }
+
+      Spacer(modifier = Modifier.height(12.dp))
+      FilledTonalButton(
+        enabled = !verification.isVerifyingBackend,
+        onClick = onVerifyTextBackend,
+        colors = ButtonDefaults.filledTonalButtonColors(
+          containerColor = SummerPrimaryContainer.copy(alpha = 0.2f),
+          contentColor = SummerPrimaryContainer
+        )
+      ) {
+        if (verification.isVerifyingBackend) {
+          CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = SummerPrimaryContainer)
+          Spacer(Modifier.width(8.dp))
+          Text("Testing Model...", color = SummerPrimaryContainer)
+        } else {
+          Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp), tint = SummerPrimaryContainer)
+          Spacer(Modifier.width(6.dp))
+          Text("Verify Summarization Model", color = SummerPrimaryContainer)
+        }
+      }
+      verification.backendMessage?.let { msg ->
+        Spacer(modifier = Modifier.height(8.dp))
+        VerificationStatusBox(message = msg, isError = verification.backendIsError)
+      }
     }
 
-    // External Browser Selection Card (avoids looping back into Summer)
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-      Column(modifier = Modifier.padding(16.dp)) {
-        Text(
-          text = "External Browser Launching",
-          style = MaterialTheme.typography.titleMedium,
-          fontWeight = FontWeight.Bold
-        )
-        Text(
-          text = "When opening external articles or passing through non-feed links, Summer targets your installed browser app directly.",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          Column(modifier = Modifier.weight(1f)) {
-            Text(
-              text = "Use Custom Tabs overlay",
-              style = MaterialTheme.typography.bodyMedium,
-              fontWeight = FontWeight.SemiBold
-            )
-            Text(
-              text = "When off (default), opens full standalone browser app. When on, opens in an in-app browser tab.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-          }
-          Switch(
-            checked = settings.useCustomTabs,
-            onCheckedChange = { checked ->
-              onUpdateSettings { it.copy(useCustomTabs = checked) }
-            }
-          )
+    // -------------------------------------------------------------
+    // Section 4: Google Feed & Browser Capture
+    // -------------------------------------------------------------
+    SettingsSectionCard(
+      title = "Google Feed & Browser Capture",
+      subtitle = "Control automatic link interception and external browser launching.",
+      icon = Icons.Default.Public
+    ) {
+      SettingsSwitchRow(
+        title = "Only Intercept Google Feed URLs",
+        subtitle = "When enabled, Summer only saves links coming from the Google Feed (via search.app/share.google shorteners, Discover tracking params, or Google App referrers). All other links pass through to your browser.",
+        checked = settings.onlyInterceptGoogleFeed,
+        onCheckedChange = { checked ->
+          onUpdateSettings { it.copy(onlyInterceptGoogleFeed = checked) }
         }
+      )
 
-        Spacer(modifier = Modifier.height(12.dp))
-        HorizontalDivider()
-        Spacer(modifier = Modifier.height(12.dp))
+      HorizontalDivider(
+        color = SummerBorderSubtle,
+        modifier = Modifier.padding(vertical = 12.dp)
+      )
 
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          Column(modifier = Modifier.weight(1f)) {
-            Text(
-              text = "Don't save when opened from notification",
-              style = MaterialTheme.typography.bodyMedium,
-              fontWeight = FontWeight.SemiBold
-            )
-            Text(
-              text = "When enabled, tapping the quick-save notification to open the link in your browser automatically removes it from Summer.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-          }
-          Switch(
-            checked = settings.removeWhenOpenedFromNotification,
-            onCheckedChange = { checked ->
-              onUpdateSettings { it.copy(removeWhenOpenedFromNotification = checked) }
-            }
-          )
+      SettingsSwitchRow(
+        title = "Use Custom Tabs overlay",
+        subtitle = "When off (default), opens full standalone browser app. When on, opens in an in-app browser tab.",
+        checked = settings.useCustomTabs,
+        onCheckedChange = { checked ->
+          onUpdateSettings { it.copy(useCustomTabs = checked) }
         }
+      )
 
-        Spacer(modifier = Modifier.height(12.dp))
-        HorizontalDivider()
-        Spacer(modifier = Modifier.height(12.dp))
+      HorizontalDivider(
+        color = SummerBorderSubtle,
+        modifier = Modifier.padding(vertical = 12.dp)
+      )
 
-        Text(
-          text = "Target Browser App",
-          style = MaterialTheme.typography.labelLarge,
-          fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(4.dp))
+      SettingsSwitchRow(
+        title = "Don't save when opened from notification",
+        subtitle = "When enabled, tapping the quick-save notification to open the link in your browser automatically removes it from Summer.",
+        checked = settings.removeWhenOpenedFromNotification,
+        onCheckedChange = { checked ->
+          onUpdateSettings { it.copy(removeWhenOpenedFromNotification = checked) }
+        }
+      )
 
+      HorizontalDivider(
+        color = SummerBorderSubtle,
+        modifier = Modifier.padding(vertical = 12.dp)
+      )
+
+      Text(
+        text = "TARGET BROWSER APP",
+        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+        color = SummerTextSecondary
+      )
+      Spacer(modifier = Modifier.height(8.dp))
+
+      // Auto-detect browser option
+      Surface(
+        color = if (settings.preferredBrowserPackage.isBlank()) SummerPrimaryContainer.copy(alpha = 0.08f) else SummerSurfaceDim,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, if (settings.preferredBrowserPackage.isBlank()) SummerPrimaryContainer else SummerBorderSubtle),
+        modifier = Modifier
+          .fillMaxWidth()
+          .clickable { onUpdateSettings { it.copy(preferredBrowserPackage = "") } }
+      ) {
         Row(
-          modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onUpdateSettings { it.copy(preferredBrowserPackage = "") } }
-            .padding(vertical = 4.dp),
+          modifier = Modifier.padding(14.dp),
           verticalAlignment = Alignment.CenterVertically
         ) {
           RadioButton(
             selected = settings.preferredBrowserPackage.isBlank(),
-            onClick = { onUpdateSettings { it.copy(preferredBrowserPackage = "") } }
+            onClick = { onUpdateSettings { it.copy(preferredBrowserPackage = "") } },
+            colors = RadioButtonDefaults.colors(
+              selectedColor = SummerPrimaryContainer,
+              unselectedColor = SummerTextSecondary
+            )
           )
-          Spacer(modifier = Modifier.width(8.dp))
-          Text("Auto-detect external browser (Chrome preferred)")
+          Spacer(modifier = Modifier.width(10.dp))
+          Column {
+            Text(
+              text = "Auto-detect External Browser",
+              style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+              color = SummerTextPrimary
+            )
+            Text(
+              text = "Chrome preferred if installed, otherwise default system handler",
+              style = MaterialTheme.typography.bodySmall,
+              color = SummerTextSecondary
+            )
+          }
         }
+      }
 
-        installedBrowsers.forEach { browser ->
+      installedBrowsers.forEach { browser ->
+        val isSelected = settings.preferredBrowserPackage == browser.packageName
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(
+          color = if (isSelected) SummerPrimaryContainer.copy(alpha = 0.08f) else SummerSurfaceDim,
+          shape = RoundedCornerShape(12.dp),
+          border = BorderStroke(1.dp, if (isSelected) SummerPrimaryContainer else SummerBorderSubtle),
+          modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+              onUpdateSettings { it.copy(preferredBrowserPackage = browser.packageName) }
+            }
+        ) {
           Row(
-            modifier = Modifier
-              .fillMaxWidth()
-              .clickable {
-                onUpdateSettings { it.copy(preferredBrowserPackage = browser.packageName) }
-              }
-              .padding(vertical = 4.dp),
+            modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
           ) {
             RadioButton(
-              selected = settings.preferredBrowserPackage == browser.packageName,
+              selected = isSelected,
               onClick = {
                 onUpdateSettings { it.copy(preferredBrowserPackage = browser.packageName) }
-              }
+              },
+              colors = RadioButtonDefaults.colors(
+                selectedColor = SummerPrimaryContainer,
+                unselectedColor = SummerTextSecondary
+              )
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Column {
-              Text(browser.label, style = MaterialTheme.typography.bodyMedium)
               Text(
-                browser.packageName,
+                text = browser.label,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = SummerTextPrimary
+              )
+              Text(
+                text = browser.packageName,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = SummerTextSecondary
               )
             }
           }
         }
       }
+    }
+
+    // -------------------------------------------------------------
+    // Footer: Version & Engine Status
+    // -------------------------------------------------------------
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(vertical = 12.dp),
+      horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+      Text(
+        text = "Summer v2.4 • Literary AI Companion",
+        style = MaterialTheme.typography.labelSmall.copy(
+          fontFamily = FontFamily.Monospace,
+          letterSpacing = 1.sp
+        ),
+        color = SummerTextSecondary.copy(alpha = 0.7f)
+      )
+      Spacer(modifier = Modifier.height(4.dp))
+      Text(
+        text = "Intelligence: ${settings.selectedBackend.displayName} • TTS: ${settings.podcastTtsProvider.displayName}",
+        style = MaterialTheme.typography.labelSmall.copy(
+          fontFamily = FontFamily.Monospace,
+          letterSpacing = 0.5.sp
+        ),
+        color = SummerPrimaryContainer.copy(alpha = 0.85f)
+      )
     }
   }
 }
@@ -3677,45 +4161,262 @@ private fun AddLinkDialog(
   onDismiss: () -> Unit,
   onAddUrl: (String) -> Unit
 ) {
-  var urlInput by rememberSaveable { mutableStateOf("https://") }
+  var urlInput by rememberSaveable { mutableStateOf("") }
+  var autoGenerateDigest by rememberSaveable { mutableStateOf(true) }
+  var prioritizeNextPodcast by rememberSaveable { mutableStateOf(true) }
 
-  AlertDialog(
+  Dialog(
     onDismissRequest = onDismiss,
-    title = { Text("Save Website Link") },
-    text = {
-      Column {
+    properties = DialogProperties(usePlatformDefaultWidth = false)
+  ) {
+    Surface(
+      color = SummerSurfaceContainer,
+      shape = RoundedCornerShape(20.dp),
+      border = BorderStroke(1.dp, SummerPrimaryContainer.copy(alpha = 0.35f)),
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 24.dp)
+        .wrapContentHeight()
+    ) {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(20.dp)
+      ) {
+        // Header Row
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Icon(
+            imageVector = Icons.Default.AddLink,
+            contentDescription = null,
+            tint = SummerPrimary,
+            modifier = Modifier.size(22.dp)
+          )
+          Spacer(modifier = Modifier.width(10.dp))
+          Text(
+            text = "Add Article or Link",
+            style = MaterialTheme.typography.titleMedium.copy(
+              fontFamily = NewsreaderFontFamily,
+              fontSize = 20.sp,
+              fontWeight = FontWeight.Medium
+            ),
+            color = SummerOnSurface,
+            modifier = Modifier.weight(1f)
+          )
+          IconButton(
+            onClick = onDismiss,
+            modifier = Modifier.size(32.dp)
+          ) {
+            Icon(
+              imageVector = Icons.Default.Close,
+              contentDescription = "Close dialog",
+              tint = SummerOutline,
+              modifier = Modifier.size(18.dp)
+            )
+          }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Input Field
         Text(
-          text = "Paste a URL to save and scrape its title, thumbnail, favicon, and content:",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant
+          text = "URL OR WEB FEED",
+          style = MaterialTheme.typography.labelSmall.copy(
+            fontFamily = ManropeFontFamily,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.06.sp
+          ),
+          color = SummerOnSurfaceVariant
         )
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(6.dp))
         OutlinedTextField(
           value = urlInput,
           onValueChange = { urlInput = it },
-          label = { Text("Website URL") },
+          placeholder = {
+            Text(
+              text = "Paste URL (e.g. https://...)",
+              color = SummerOutline.copy(alpha = 0.6f),
+              fontSize = 13.sp,
+              fontFamily = ManropeFontFamily
+            )
+          },
+          leadingIcon = {
+            Icon(
+              imageVector = Icons.Default.Link,
+              contentDescription = null,
+              tint = SummerOutline,
+              modifier = Modifier.size(18.dp)
+            )
+          },
+          trailingIcon = {
+            if (urlInput.isNotBlank()) {
+              IconButton(onClick = { urlInput = "" }, modifier = Modifier.size(24.dp)) {
+                Icon(
+                  imageVector = Icons.Default.Close,
+                  contentDescription = "Clear",
+                  tint = SummerOutline,
+                  modifier = Modifier.size(16.dp)
+                )
+              }
+            }
+          },
           singleLine = true,
+          shape = RoundedCornerShape(12.dp),
+          colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = SummerSurfaceContainerHigh.copy(alpha = 0.8f),
+            unfocusedContainerColor = SummerSurfaceContainerHigh.copy(alpha = 0.8f),
+            focusedBorderColor = SummerPrimaryContainer,
+            unfocusedBorderColor = SummerBorderSubtle,
+            focusedTextColor = SummerOnSurface,
+            unfocusedTextColor = SummerOnSurface,
+            cursorColor = SummerPrimaryContainer
+          ),
           modifier = Modifier.fillMaxWidth()
         )
-      }
-    },
-    confirmButton = {
-      Button(
-        onClick = {
-          if (urlInput.isNotBlank()) {
-            onAddUrl(urlInput.trim())
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Options Container
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          Surface(
+            color = SummerSurfaceContainerLow,
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, SummerBorderSubtle.copy(alpha = 0.6f)),
+            modifier = Modifier
+              .fillMaxWidth()
+              .clickable { autoGenerateDigest = !autoGenerateDigest }
+          ) {
+            Row(
+              modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = SummerPrimaryContainer,
+                modifier = Modifier.size(18.dp)
+              )
+              Spacer(modifier = Modifier.width(10.dp))
+              Text(
+                text = "Auto-generate AI digest",
+                style = MaterialTheme.typography.bodySmall.copy(
+                  fontFamily = ManropeFontFamily,
+                  fontSize = 12.sp,
+                  color = SummerOnSurface
+                ),
+                modifier = Modifier.weight(1f)
+              )
+              Checkbox(
+                checked = autoGenerateDigest,
+                onCheckedChange = { autoGenerateDigest = it },
+                colors = CheckboxDefaults.colors(
+                  checkedColor = SummerPrimaryContainer,
+                  uncheckedColor = SummerBorderSubtle,
+                  checkmarkColor = SummerSurface
+                )
+              )
+            }
+          }
+
+          Surface(
+            color = SummerSurfaceContainerLow,
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, SummerBorderSubtle.copy(alpha = 0.6f)),
+            modifier = Modifier
+              .fillMaxWidth()
+              .clickable { prioritizeNextPodcast = !prioritizeNextPodcast }
+          ) {
+            Row(
+              modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Icon(
+                imageVector = Icons.Default.Podcasts,
+                contentDescription = null,
+                tint = SummerSecondary,
+                modifier = Modifier.size(18.dp)
+              )
+              Spacer(modifier = Modifier.width(10.dp))
+              Text(
+                text = "Prioritize for next podcast",
+                style = MaterialTheme.typography.bodySmall.copy(
+                  fontFamily = ManropeFontFamily,
+                  fontSize = 12.sp,
+                  color = SummerOnSurface
+                ),
+                modifier = Modifier.weight(1f)
+              )
+              Checkbox(
+                checked = prioritizeNextPodcast,
+                onCheckedChange = { prioritizeNextPodcast = it },
+                colors = CheckboxDefaults.colors(
+                  checkedColor = SummerPrimaryContainer,
+                  uncheckedColor = SummerBorderSubtle,
+                  checkmarkColor = SummerSurface
+                )
+              )
+            }
           }
         }
-      ) {
-        Text("Save")
-      }
-    },
-    dismissButton = {
-      TextButton(onClick = onDismiss) {
-        Text("Cancel")
+
+        Spacer(modifier = Modifier.height(16.dp))
+        HorizontalDivider(color = SummerBorderSubtle.copy(alpha = 0.7f))
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Action Buttons
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.End,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          TextButton(
+            onClick = onDismiss,
+            shape = RoundedCornerShape(10.dp)
+          ) {
+            Text(
+              text = "Cancel",
+              color = SummerOnSurfaceVariant,
+              fontFamily = ManropeFontFamily,
+              fontSize = 13.sp,
+              fontWeight = FontWeight.Medium
+            )
+          }
+          Spacer(modifier = Modifier.width(8.dp))
+          Button(
+            onClick = {
+              val trimmed = urlInput.trim()
+              if (trimmed.isNotBlank()) {
+                onAddUrl(trimmed)
+              }
+            },
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(
+              containerColor = SummerPrimaryContainer,
+              contentColor = SummerOnPrimaryContainer
+            )
+          ) {
+            Icon(
+              imageVector = Icons.Default.Add,
+              contentDescription = null,
+              modifier = Modifier.size(16.dp),
+              tint = SummerSurface
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+              text = "Add Link",
+              color = SummerSurface,
+              fontFamily = ManropeFontFamily,
+              fontSize = 13.sp,
+              fontWeight = FontWeight.SemiBold
+            )
+          }
+        }
       }
     }
-  )
+  }
 }
 
 @Composable
@@ -3730,10 +4431,12 @@ private fun SettingsDropdownSelector(
   var expanded by remember { mutableStateOf(false) }
 
   Box(modifier = modifier) {
-    OutlinedCard(
-      modifier = Modifier
-        .fillMaxWidth()
-        .clickable { expanded = true }
+    Surface(
+      onClick = { expanded = true },
+      color = SummerSurfaceDim,
+      shape = RoundedCornerShape(12.dp),
+      border = BorderStroke(1.dp, SummerBorderSubtle),
+      modifier = Modifier.fillMaxWidth()
     ) {
       Row(
         modifier = Modifier
@@ -3744,21 +4447,30 @@ private fun SettingsDropdownSelector(
         Column(modifier = Modifier.weight(1f)) {
           Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary
+            style = MaterialTheme.typography.labelSmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontSize = 11.sp,
+              color = SummerOnSurfaceVariant
+            )
           )
           Spacer(modifier = Modifier.height(2.dp))
           Text(
             text = selectedDisplay,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
+            style = MaterialTheme.typography.bodyMedium.copy(
+              fontFamily = ManropeFontFamily,
+              fontSize = 13.sp,
+              fontWeight = FontWeight.Medium,
+              color = SummerOnSurface
+            ),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
           )
         }
         Icon(
           imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-          contentDescription = "Select $label"
+          contentDescription = "Select $label",
+          tint = SummerOutline,
+          modifier = Modifier.size(18.dp)
         )
       }
     }
@@ -3766,20 +4478,21 @@ private fun SettingsDropdownSelector(
     DropdownMenu(
       expanded = expanded,
       onDismissRequest = { expanded = false },
-      modifier = Modifier.heightIn(max = 340.dp)
+      modifier = Modifier
+        .heightIn(max = 340.dp)
+        .background(SummerSurfaceContainerHigh)
+        .border(1.dp, SummerBorderSubtle, RoundedCornerShape(12.dp))
     ) {
       options.forEach { (value, display) ->
-        val isSelected = value == selectedValue
+        val isChosen = value == selectedValue
         DropdownMenuItem(
           text = {
             Text(
               text = display,
-              fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-              color = if (isSelected) {
-                MaterialTheme.colorScheme.primary
-              } else {
-                MaterialTheme.colorScheme.onSurface
-              }
+              color = if (isChosen) SummerPrimary else SummerOnSurface,
+              fontWeight = if (isChosen) FontWeight.Bold else FontWeight.Normal,
+              fontSize = 13.sp,
+              fontFamily = ManropeFontFamily
             )
           },
           onClick = {
@@ -3798,24 +4511,34 @@ private fun VerificationStatusBox(
   isError: Boolean
 ) {
   Surface(
-    color = if (isError) {
-      MaterialTheme.colorScheme.errorContainer
-    } else {
-      MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-    },
+    color = if (isError) SummerError.copy(alpha = 0.12f) else SummerPrimaryContainer.copy(alpha = 0.12f),
     shape = RoundedCornerShape(12.dp),
+    border = BorderStroke(
+      width = 1.dp,
+      color = if (isError) SummerError.copy(alpha = 0.35f) else SummerPrimaryContainer.copy(alpha = 0.35f)
+    ),
     modifier = Modifier.fillMaxWidth()
   ) {
-    Text(
-      text = message,
-      style = MaterialTheme.typography.bodySmall,
-      color = if (isError) {
-        MaterialTheme.colorScheme.onErrorContainer
-      } else {
-        MaterialTheme.colorScheme.onPrimaryContainer
-      },
-      modifier = Modifier.padding(12.dp)
-    )
+    Row(
+      modifier = Modifier.padding(12.dp),
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Icon(
+        imageVector = if (isError) Icons.Default.Close else Icons.Default.CheckCircle,
+        contentDescription = null,
+        tint = if (isError) SummerError else SummerPrimary,
+        modifier = Modifier.size(16.dp)
+      )
+      Spacer(modifier = Modifier.width(8.dp))
+      Text(
+        text = message,
+        style = MaterialTheme.typography.bodySmall.copy(
+          fontFamily = ManropeFontFamily,
+          fontSize = 12.sp
+        ),
+        color = if (isError) SummerError else SummerPrimary
+      )
+    }
   }
 }
 
