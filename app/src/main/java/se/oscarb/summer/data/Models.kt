@@ -404,7 +404,8 @@ data class DigestEntry(
   val podcastVoiceProvider: String? = null,
   val isGeneratingPodcast: Boolean = false,
   val podcastStatusText: String? = null,
-  val podcastError: String? = null
+  val podcastError: String? = null,
+  val isPlayed: Boolean = false
 ) {
   val displayTitle: String
     get() = title.ifBlank {

@@ -98,10 +98,16 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     val liveSheet = sheet?.let { active ->
       digests.firstOrNull { it.id == active.id } ?: active
     }
+    val lastCatchUpTime = digests.maxOfOrNull { it.createdAt } ?: 0L
+    val pendingUnreadCount = if (lastCatchUpTime > 0L) {
+      websites.count { !it.isArchived && it.createdAt > lastCatchUpTime }
+    } else {
+      websites.count { !it.isArchived }
+    }
     SummerUiState(
       websites = websites,
       filteredWebsites = filtered,
-      unreadCount = websites.count { !it.isArchived },
+      unreadCount = pendingUnreadCount,
       activeFilter = filter,
       expandedWebsiteIds = expanded,
       digests = digests,
@@ -148,6 +154,9 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
           url = outcome.url.ifBlank { url },
           wasBumped = false
         )
+      }
+      is SaveUrlOutcome.DuplicateSkipped -> {
+        _digestError.value = "Link is already saved."
       }
       is SaveUrlOutcome.BumpedExisting -> {
         _postSaveEvent.value = PostSaveBannerEvent(
@@ -237,6 +246,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
       _activeDigestSheet.value = null
     }
     repository.deleteDigest(digestId)
+  }
+
+  fun toggleDigestPlayed(digest: DigestEntry) {
+    repository.markDigestPlayed(digest.id, !digest.isPlayed)
   }
 
   fun updateSettings(transform: (AppSettings) -> AppSettings) {

@@ -501,6 +501,10 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
   private fun onPlaybackCompleted() {
     playbackCompleted = true
     val duration = _state.value.durationMs
+    val activeDigestId = _state.value.activeDigestId
+    if (activeDigestId != null) {
+      se.oscarb.summer.data.SummerRepository.getInstance(appContext).markDigestPlayed(activeDigestId, isPlayed = true)
+    }
     _state.update { it.copy(isPlaying = false, positionMs = duration) }
     updateMediaSessionPlaybackState(isPlaying = false, positionMs = duration)
     stopProgressTicker()

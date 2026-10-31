@@ -252,14 +252,7 @@ class SummerRepository private constructor(private val appContext: Context) {
       if (existing != null) {
         isDuplicate = true
         targetId = existing.id
-        val bumped = existing.copy(
-          updatedAt = now,
-          isRead = false,
-          isArchived = false,
-          isLoadingMetadata = existing.extractedContent.isBlank() || existing.thumbnailUrl.isBlank()
-        )
-        (listOf(bumped) + currentList.filterNot { it.id == existing.id })
-          .sortedByDescending { it.createdAt }
+        currentList // Skip adding duplicate links
       } else {
         val newEntry = SavedWebsite(
           id = UUID.randomUUID().toString(),
@@ -277,44 +270,46 @@ class SummerRepository private constructor(private val appContext: Context) {
         (listOf(newEntry) + currentList).sortedByDescending { it.createdAt }
       }
     }
-    persistWebsites()
-
-    // Schedule / reset quiet-window auto-podcast countdown synchronously while caller Activity
-    // (such as SaveLinkTrampolineActivity or MainActivity) is in the foreground!
-    scheduleOrResetQuietWindowIfEligible()
-
-    // Background scrape title, favicon, thumbnail, and readable text
-    scope.launch {
-      val scraped = WebPageScraper.scrape(normalized)
-      _websites.update { list ->
-        list.map { item ->
-          if (item.id == targetId) {
-            item.copy(
-              title = scraped.title.ifBlank { item.title },
-              faviconUrl = scraped.faviconUrl.ifBlank { item.faviconUrl },
-              thumbnailUrl = scraped.thumbnailUrl.ifBlank { item.thumbnailUrl },
-              domain = scraped.domain.ifBlank { item.domain },
-              extractedContent = scraped.readableContent.ifBlank { item.extractedContent },
-              isLoadingMetadata = false
-            )
-          } else {
-            item
-          }
-        }
-      }
+    if (!isDuplicate) {
       persistWebsites()
 
-      // Auto-summarize text summary if enabled in Settings
-      if (_settings.value.autoSummarizeOnSave) {
-        val currentItem = _websites.value.firstOrNull { it.id == targetId }
-        if (currentItem != null && currentItem.summary.isNullOrBlank()) {
-          summarizeWebsite(targetId)
+      // Schedule / reset quiet-window auto-podcast countdown synchronously while caller Activity
+      // (such as SaveLinkTrampolineActivity or MainActivity) is in the foreground!
+      scheduleOrResetQuietWindowIfEligible()
+
+      // Background scrape title, favicon, thumbnail, and readable text
+      scope.launch {
+        val scraped = WebPageScraper.scrape(normalized)
+        _websites.update { list ->
+          list.map { item ->
+            if (item.id == targetId) {
+              item.copy(
+                title = scraped.title.ifBlank { item.title },
+                faviconUrl = scraped.faviconUrl.ifBlank { item.faviconUrl },
+                thumbnailUrl = scraped.thumbnailUrl.ifBlank { item.thumbnailUrl },
+                domain = scraped.domain.ifBlank { item.domain },
+                extractedContent = scraped.readableContent.ifBlank { item.extractedContent },
+                isLoadingMetadata = false
+              )
+            } else {
+              item
+            }
+          }
+        }
+        persistWebsites()
+
+        // Auto-summarize text summary if enabled in Settings
+        if (_settings.value.autoSummarizeOnSave) {
+          val currentItem = _websites.value.firstOrNull { it.id == targetId }
+          if (currentItem != null && currentItem.summary.isNullOrBlank()) {
+            summarizeWebsite(targetId)
+          }
         }
       }
     }
 
     return if (isDuplicate) {
-      SaveUrlOutcome.BumpedExisting(domain, normalized, targetId)
+      SaveUrlOutcome.DuplicateSkipped(domain, normalized, targetId)
     } else {
       SaveUrlOutcome.SavedNew(domain, normalized, targetId)
     }
@@ -503,15 +498,36 @@ class SummerRepository private constructor(private val appContext: Context) {
     }
   }
 
+  fun markDigestPlayed(digestId: String, isPlayed: Boolean = true) {
+    _digests.update { current ->
+      current.map { if (it.id == digestId) it.copy(isPlayed = isPlayed) else it }
+    }
+    persistDigests()
+  }
+
   /**
-   * Creates a podcast-only "Catch Me Up" digest across all unread websites (skipping any
-   * separate written-briefing LLM call) and immediately starts podcast script + audio generation.
+   * Creates a podcast-only "Catch Me Up" digest across unread websites saved since the last
+   * Catch Me Up (skipping any separate written-briefing LLM call) and immediately starts podcast
+   * script + audio generation.
    */
   suspend fun generateCatchMeUpDigestForUnread(): Result<DigestEntry> {
     cancelQuietWindowCountdown()
     val unreadItems = _websites.value.filter { !it.isRead && !it.isArchived }
+    val lastDigestTime = _digests.value.maxOfOrNull { it.createdAt } ?: 0L
+    val targetWebsites = if (lastDigestTime > 0L) {
+      unreadItems.filter { it.createdAt > lastDigestTime }
+    } else {
+      unreadItems
+    }
+    if (targetWebsites.isEmpty()) {
+      return Result.failure(
+        IllegalStateException(
+          if (lastDigestTime > 0L) "No new links saved since your last Catch Me Up!" else "No unread links to create a podcast from!"
+        )
+      )
+    }
     return generateCatchMeUpDigestForWebsites(
-      targetWebsites = unreadItems,
+      targetWebsites = targetWebsites,
       autoPlayWhenReady = false,
       autoArchiveOnPodcastSuccess = false
     )
@@ -532,7 +548,16 @@ class SummerRepository private constructor(private val appContext: Context) {
       val hostNames = episodeCast.map { it.name }
       val digestId = UUID.randomUUID().toString()
       val nextEpisodeNumber = (_digests.value.maxOfOrNull { it.episodeNumber } ?: 0) + 1
-      val episodeTitle = targetWebsites.firstOrNull()?.title?.ifBlank { "Daily Catch-Up Briefing" } ?: "Daily Catch-Up Briefing"
+      val domains = targetWebsites.map {
+        it.domain.substringBefore('.').replaceFirstChar { c -> c.uppercase() }
+      }.distinct().take(3)
+      val domainSummary = if (domains.size == 1) domains[0] else domains.joinToString(" & ")
+      val primaryHeadline = targetWebsites.first().title.ifBlank { domainSummary }
+      val episodeTitle = if (targetWebsites.size == 1) {
+        primaryHeadline.take(50).trim()
+      } else {
+        "${primaryHeadline.take(35).trim()} & $domainSummary"
+      }
 
       val digest = DigestEntry(
         id = digestId,
@@ -934,6 +959,7 @@ class SummerRepository private constructor(private val appContext: Context) {
 
 sealed interface SaveUrlOutcome {
   data class SavedNew(val domain: String, val url: String = "", val websiteId: String = "") : SaveUrlOutcome
+  data class DuplicateSkipped(val domain: String, val url: String = "", val websiteId: String = "") : SaveUrlOutcome
   data class BumpedExisting(val domain: String, val url: String = "", val websiteId: String = "") : SaveUrlOutcome
   data object InvalidUrl : SaveUrlOutcome
 }

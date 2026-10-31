@@ -65,6 +65,17 @@ class SaveLinkTrampolineActivity : Activity() {
             useCustomTabs = settings.useCustomTabs
           )
         }
+        is SaveUrlOutcome.DuplicateSkipped -> {
+          QuickSaveNotificationHelper.showPostSaveNotification(
+            context = applicationContext,
+            url = outcome.url.ifBlank { incomingUrl },
+            domain = outcome.domain,
+            websiteId = outcome.websiteId,
+            wasBumped = true,
+            preferredBrowserPackage = settings.preferredBrowserPackage,
+            useCustomTabs = settings.useCustomTabs
+          )
+        }
         is SaveUrlOutcome.BumpedExisting -> {
           QuickSaveNotificationHelper.showPostSaveNotification(
             context = applicationContext,

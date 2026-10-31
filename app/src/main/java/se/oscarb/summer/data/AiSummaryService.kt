@@ -1,6 +1,7 @@
 package se.oscarb.summer.data
 
 import android.content.Context
+import android.util.Log
 import com.google.ai.edge.aicore.GenerativeModel
 import com.google.ai.edge.aicore.generationConfig
 import com.google.firebase.Firebase
@@ -272,26 +273,7 @@ class AiSummaryService(private val appContext: Context) {
     allowCapacityFallback: Boolean = true
   ): Result<String> {
     return try {
-      val text = when (settings.selectedBackend) {
-        AiBackend.FIREBASE_AI -> callFirebaseAiLogic(
-          prompt = prompt,
-          modelName = settings.firebaseModel,
-          allowCapacityFallback = allowCapacityFallback
-        )
-        AiBackend.DIRECT_GEMINI -> callDirectGeminiApi(
-          prompt = prompt,
-          apiKey = settings.directGeminiApiKey.trim(),
-          model = settings.directGeminiModel.trim().ifBlank { "gemini-3.8-flash" },
-          allowCapacityFallback = allowCapacityFallback
-        )
-        AiBackend.GEMINI_NANO_ON_DEVICE -> callOnDeviceGeminiNano(prompt)
-        AiBackend.OPENAI_COMPATIBLE -> callOpenAiCompatibleApi(
-          prompt = prompt,
-          baseUrl = settings.openAiBaseUrl.trim().trimEnd('/'),
-          apiKey = settings.openAiApiKey.trim(),
-          model = settings.openAiModel.trim().ifBlank { "gpt-4o-mini" }
-        )
-      }
+      val text = executeBackend(prompt, settings.selectedBackend, settings, allowCapacityFallback)
       if (text.isBlank()) {
         Result.failure(IllegalStateException("AI provider returned an empty summary."))
       } else {
@@ -299,8 +281,70 @@ class AiSummaryService(private val appContext: Context) {
       }
     } catch (ce: CancellationException) {
       throw ce
-    } catch (e: Exception) {
-      Result.failure(e)
+    } catch (primaryErr: Exception) {
+      Log.w(TAG, "Primary backend ${settings.selectedBackend} failed: ${primaryErr.message}; attempting fallback backend", primaryErr)
+      val fallbacks = when (settings.selectedBackend) {
+        AiBackend.FIREBASE_AI -> listOfNotNull(
+          if (settings.directGeminiApiKey.isNotBlank()) AiBackend.DIRECT_GEMINI else null,
+          AiBackend.GEMINI_NANO_ON_DEVICE
+        )
+        AiBackend.DIRECT_GEMINI -> listOfNotNull(
+          AiBackend.FIREBASE_AI,
+          AiBackend.GEMINI_NANO_ON_DEVICE
+        )
+        AiBackend.OPENAI_COMPATIBLE -> listOfNotNull(
+          if (settings.directGeminiApiKey.isNotBlank()) AiBackend.DIRECT_GEMINI else null,
+          AiBackend.FIREBASE_AI,
+          AiBackend.GEMINI_NANO_ON_DEVICE
+        )
+        AiBackend.GEMINI_NANO_ON_DEVICE -> listOfNotNull(
+          if (settings.directGeminiApiKey.isNotBlank()) AiBackend.DIRECT_GEMINI else null,
+          AiBackend.FIREBASE_AI
+        )
+      }
+
+      for (fallback in fallbacks) {
+        try {
+          Log.i(TAG, "Falling back to backend: $fallback")
+          val text = executeBackend(prompt, fallback, settings, allowCapacityFallback)
+          if (text.isNotBlank()) {
+            return Result.success(text.trim())
+          }
+        } catch (ce: CancellationException) {
+          throw ce
+        } catch (fallbackErr: Exception) {
+          Log.w(TAG, "Fallback backend $fallback failed: ${fallbackErr.message}")
+        }
+      }
+      Result.failure(primaryErr)
+    }
+  }
+
+  private suspend fun executeBackend(
+    prompt: String,
+    backend: AiBackend,
+    settings: AppSettings,
+    allowCapacityFallback: Boolean
+  ): String {
+    return when (backend) {
+      AiBackend.FIREBASE_AI -> callFirebaseAiLogic(
+        prompt = prompt,
+        modelName = settings.firebaseModel,
+        allowCapacityFallback = allowCapacityFallback
+      )
+      AiBackend.DIRECT_GEMINI -> callDirectGeminiApi(
+        prompt = prompt,
+        apiKey = settings.directGeminiApiKey.trim(),
+        model = settings.directGeminiModel.trim().ifBlank { "gemini-3.8-flash" },
+        allowCapacityFallback = allowCapacityFallback
+      )
+      AiBackend.GEMINI_NANO_ON_DEVICE -> callOnDeviceGeminiNano(prompt)
+      AiBackend.OPENAI_COMPATIBLE -> callOpenAiCompatibleApi(
+        prompt = prompt,
+        baseUrl = settings.openAiBaseUrl.trim().trimEnd('/'),
+        apiKey = settings.openAiApiKey.trim(),
+        model = settings.openAiModel.trim().ifBlank { "gpt-4o-mini" }
+      )
     }
   }
 
@@ -487,5 +531,9 @@ class AiSummaryService(private val appContext: Context) {
       }
       throw IllegalStateException("Could not parse completion response.")
     }
+  }
+
+  companion object {
+    private const val TAG = "AiSummaryService"
   }
 }

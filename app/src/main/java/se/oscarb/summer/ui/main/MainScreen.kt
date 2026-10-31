@@ -12,6 +12,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -240,6 +241,7 @@ enum class FeedMode(val title: String, val icon: ImageVector) {
 enum class EpisodeFilter(val label: String) {
   ALL("All Episodes"),
   UNPLAYED("Unplayed"),
+  PLAYED("Played"),
   ENGLISH("🇬🇧 English (EN)"),
   SWEDISH("🇸🇪 Svenska (SV)")
 }
@@ -427,7 +429,8 @@ fun MainScreen(
       val filteredDigests = remember(state.digests, activeEpisodeFilter) {
         when (activeEpisodeFilter) {
           EpisodeFilter.ALL -> state.digests
-          EpisodeFilter.UNPLAYED -> state.digests.filter { it.podcastAudioPath != null }
+          EpisodeFilter.UNPLAYED -> state.digests.filter { !it.isPlayed }
+          EpisodeFilter.PLAYED -> state.digests.filter { it.isPlayed }
           EpisodeFilter.ENGLISH -> state.digests.filter { it.language == PodcastLanguage.ENGLISH }
           EpisodeFilter.SWEDISH -> state.digests.filter { it.language == PodcastLanguage.SWEDISH }
         }
@@ -627,22 +630,113 @@ fun MainScreen(
 
               // Websites next within date group
               items(group.websites, key = { "link_${it.id}" }) { website ->
-                WebsiteItemCard(
-                  website = website,
-                  isExpanded = website.id in state.expandedWebsiteIds,
-                  onCardClick = { viewModel.onWebsiteCardClicked(website) },
-                  onSummarizeClick = { viewModel.resummarizeWebsite(website.id) },
-                  onToggleArchive = { viewModel.toggleArchive(website) },
-                  onDelete = { viewModel.deleteWebsite(website.id) },
-                  onOpenExternal = {
-                    ExternalBrowserLauncher.openInExternalBrowser(
-                      context = context,
-                      url = website.url,
-                      preferredBrowserPackage = state.settings.preferredBrowserPackage,
-                      useCustomTabs = state.settings.useCustomTabs
-                    )
-                  }
-                )
+                var isDismissed by remember(website.id) { mutableStateOf(false) }
+
+                AnimatedVisibility(
+                  visible = !isDismissed,
+                  enter = fadeIn() + expandVertically(),
+                  exit = shrinkVertically(
+                    animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
+                    shrinkTowards = Alignment.Top
+                  ) + fadeOut(animationSpec = tween(150)),
+                  modifier = Modifier.animateItem()
+                ) {
+                  val dismissState = rememberSwipeToDismissBoxState(
+                    positionalThreshold = { distance -> distance * 0.55f },
+                    confirmValueChange = { value ->
+                      when (value) {
+                        SwipeToDismissBoxValue.StartToEnd -> {
+                          isDismissed = true
+                          viewModel.toggleArchive(website)
+                          true
+                        }
+                        SwipeToDismissBoxValue.EndToStart -> {
+                          isDismissed = true
+                          viewModel.deleteWebsite(website.id)
+                          true
+                        }
+                        SwipeToDismissBoxValue.Settled -> false
+                      }
+                    }
+                  )
+
+                  SwipeToDismissBox(
+                    state = dismissState,
+                    backgroundContent = {
+                      val direction = dismissState.dismissDirection
+                      val bgColor = when (direction) {
+                        SwipeToDismissBoxValue.StartToEnd -> SummerPrimaryContainer.copy(alpha = 0.35f)
+                        SwipeToDismissBoxValue.EndToStart -> SummerErrorContainer.copy(alpha = 0.55f)
+                        else -> Color.Transparent
+                      }
+                      Box(
+                        modifier = Modifier
+                          .fillMaxSize()
+                          .clip(RoundedCornerShape(16.dp))
+                          .background(bgColor)
+                          .padding(horizontal = 20.dp),
+                        contentAlignment = when (direction) {
+                          SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+                          else -> Alignment.CenterEnd
+                        }
+                      ) {
+                        if (direction == SwipeToDismissBoxValue.StartToEnd) {
+                          Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                              imageVector = if (website.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                              contentDescription = null,
+                              tint = SummerPrimaryContainer
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                              text = if (website.isArchived) "Unarchive" else "Archive",
+                              style = MaterialTheme.typography.labelMedium.copy(
+                                fontFamily = ManropeFontFamily,
+                                fontWeight = FontWeight.Bold
+                              ),
+                              color = SummerPrimaryContainer
+                            )
+                          }
+                        } else if (direction == SwipeToDismissBoxValue.EndToStart) {
+                          Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                              text = "Delete",
+                              style = MaterialTheme.typography.labelMedium.copy(
+                                fontFamily = ManropeFontFamily,
+                                fontWeight = FontWeight.Bold
+                              ),
+                              color = SummerError
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Icon(
+                              imageVector = Icons.Default.DeleteOutline,
+                              contentDescription = null,
+                              tint = SummerError
+                            )
+                          }
+                        }
+                      }
+                    },
+                    content = {
+                      WebsiteItemCard(
+                        website = website,
+                        isExpanded = website.id in state.expandedWebsiteIds,
+                        onCardClick = { viewModel.onWebsiteCardClicked(website) },
+                        onSummarizeClick = { viewModel.resummarizeWebsite(website.id) },
+                        onToggleArchive = { viewModel.toggleArchive(website) },
+                        onDelete = { viewModel.deleteWebsite(website.id) },
+                        onOpenExternal = {
+                          ExternalBrowserLauncher.openInExternalBrowser(
+                            context = context,
+                            url = website.url,
+                            preferredBrowserPackage = state.settings.preferredBrowserPackage,
+                            useCustomTabs = state.settings.useCustomTabs
+                          )
+                        }
+                      )
+                    }
+                  )
+                }
               }
             }
           }
@@ -1689,16 +1783,37 @@ internal fun DigestEpisodeCard(
         horizontalArrangement = Arrangement.SpaceBetween,
         modifier = Modifier.fillMaxWidth()
       ) {
-        Text(
-          text = digest.episodeBadgeText,
-          style = MaterialTheme.typography.labelSmall.copy(
-            fontFamily = ManropeFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 11.sp,
-            letterSpacing = 1.sp
-          ),
-          color = SummerPrimaryContainer
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Text(
+            text = digest.episodeBadgeText,
+            style = MaterialTheme.typography.labelSmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontWeight = FontWeight.Bold,
+              fontSize = 11.sp,
+              letterSpacing = 1.sp
+            ),
+            color = SummerPrimaryContainer
+          )
+          if (digest.isPlayed) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Surface(
+              shape = RoundedCornerShape(4.dp),
+              color = SummerPrimaryContainer.copy(alpha = 0.2f)
+            ) {
+              Text(
+                text = "✓ PLAYED",
+                style = MaterialTheme.typography.labelSmall.copy(
+                  fontFamily = ManropeFontFamily,
+                  fontWeight = FontWeight.Bold,
+                  fontSize = 9.sp,
+                  letterSpacing = 0.5.sp
+                ),
+                color = SummerPrimaryContainer,
+                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+              )
+            }
+          }
+        }
 
         IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
           Icon(
@@ -1951,6 +2066,7 @@ internal fun CatchMeUpDigestSheetContent(
         onClick = {
           val shareText = buildString {
             appendLine("☀️ Summer Podcast Digest — $dateStr")
+            appendLine("Episode ${digest.episodeNumber}: ${digest.displayTitle}")
             appendLine("Hosted by $hostsLabel (${if (digest.language == PodcastLanguage.SWEDISH) "Swedish" else "English"})")
             appendLine()
             appendLine("Sources covered (${digest.sourceWebsites.size}):")
@@ -1959,15 +2075,58 @@ internal fun CatchMeUpDigestSheetContent(
             }
             if (!digest.podcastScript.isNullOrBlank()) {
               appendLine()
-              appendLine("Script preview:")
+              appendLine("Transcript preview:")
               appendLine(digest.podcastScript.take(300) + "...")
             }
           }
-          val sendIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, shareText)
+
+          val audioFile = digest.podcastAudioPath?.let { java.io.File(it) }
+          if (audioFile != null && audioFile.exists()) {
+            try {
+              val contentUri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                audioFile
+              )
+              val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "audio/wav"
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                putExtra(Intent.EXTRA_SUBJECT, digest.displayTitle)
+                putExtra(Intent.EXTRA_TEXT, shareText)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+              }
+              context.startActivity(Intent.createChooser(sendIntent, "Share Podcast Audio File"))
+              return@IconButton
+            } catch (e: Exception) {
+              android.util.Log.e("MainScreen", "Failed to share podcast audio file via FileProvider", e)
+            }
           }
-          context.startActivity(Intent.createChooser(sendIntent, "Share Podcast Episode"))
+
+          // Fallback or script sharing as a Markdown file
+          try {
+            val mdFile = java.io.File(context.cacheDir, "summer-digest-ep${digest.episodeNumber}.md").apply {
+              writeText(shareText)
+            }
+            val contentUri = androidx.core.content.FileProvider.getUriForFile(
+              context,
+              "${context.packageName}.fileprovider",
+              mdFile
+            )
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+              type = "text/markdown"
+              putExtra(Intent.EXTRA_STREAM, contentUri)
+              putExtra(Intent.EXTRA_SUBJECT, digest.displayTitle)
+              putExtra(Intent.EXTRA_TEXT, shareText)
+              addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(sendIntent, "Share Podcast Digest File"))
+          } catch (e: Exception) {
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+              type = "text/plain"
+              putExtra(Intent.EXTRA_TEXT, shareText)
+            }
+            context.startActivity(Intent.createChooser(sendIntent, "Share Podcast Episode"))
+          }
         }
       ) {
         Icon(
