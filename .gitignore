@@ -25,3 +25,7 @@ firebase.json
 skills-lock.json
 *.keystore
 *.jks
+.idea/
+.vscode/
+TODO.md
+

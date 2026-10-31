@@ -48,12 +48,3 @@ Whenever you come across interesting articles in other apps (such as **Google Fe
 ```bash
 ./gradlew assembleDebug testDebugUnitTest
 ```
-
----
-
-## 🗺️ Planned Improvements (see [`TODO.md`](TODO.md))
-
-- [ ] **Render Markdown in AI Summaries**: The "Firebase AI" (and other providers) return Markdown formatting (e.g., `**TL;DR.** Text...`) — render Markdown properly in cards and digests.
-- [ ] **Remove Up/Down Expand Chevron Button**: Skip the up/down button on cards while keeping tap-to-expand/collapse and making use of the extra horizontal space.
-- [ ] **Group Links by Created Date**: Group links by created date, show date headers, and skip showing timestamps on individual cards.
-- [ ] **Custom App Icon**: Add an app icon ("sun meets typical browser icon").
