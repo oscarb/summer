@@ -166,6 +166,7 @@ import se.oscarb.summer.data.TtsVoiceOption
 import se.oscarb.summer.data.LinkFilter
 import se.oscarb.summer.data.PodcastCastCatalog
 import se.oscarb.summer.data.PodcastLanguage
+import se.oscarb.summer.data.PodcastStyle
 import se.oscarb.summer.data.SavedWebsite
 import se.oscarb.summer.podcast.PodcastPlaybackState
 import se.oscarb.summer.theme.SummerBackground
@@ -2675,6 +2676,33 @@ private fun SettingsTab(
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Podcast Format & Style
+        Text(
+          text = "Podcast Format & Style",
+          style = MaterialTheme.typography.labelLarge,
+          fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          PodcastStyle.entries.forEach { style ->
+            FilterChip(
+              selected = settings.podcastStyle == style,
+              onClick = { onUpdateSettings { it.copy(podcastStyle = style) } },
+              label = { Text(if (style == PodcastStyle.MKBHD_WAVEFORM) "🎙️ Waveform (MKBHD)" else "☀️ Standard Briefing") }
+            )
+          }
+        }
+        Text(
+          text = settings.podcastStyle.subtitle,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.primary
+        )
+
         Spacer(modifier = Modifier.height(12.dp))
 
         // Podcast Language (English / Swedish)

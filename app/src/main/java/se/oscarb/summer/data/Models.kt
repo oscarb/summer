@@ -49,6 +49,18 @@ enum class PodcastTtsProvider(val displayName: String, val subtitle: String) {
 }
 
 @Serializable
+enum class PodcastStyle(val displayName: String, val subtitle: String) {
+  STANDARD(
+    displayName = "Standard Catch-Up Briefing",
+    subtitle = "Structured overview introducing topics and key takeaways."
+  ),
+  MKBHD_WAVEFORM(
+    displayName = "Waveform Studio Hangout (MKBHD)",
+    subtitle = "Relaxed tech-studio debate with micro-disfluencies, honest opinions, and casual banter."
+  )
+}
+
+@Serializable
 enum class PodcastLanguage(
   val displayName: String,
   val shortBadge: String,
@@ -440,6 +452,7 @@ data class AppSettings(
   val onlyInterceptGoogleFeed: Boolean = false, // when true, non-Google-Feed links are forwarded to external browser
   val removeWhenOpenedFromNotification: Boolean = false, // when true, opening a link from the quick-save notification deletes it from Summer
   // Podcast & TTS Settings
+  val podcastStyle: PodcastStyle = PodcastStyle.STANDARD,
   val podcastTtsProvider: PodcastTtsProvider = PodcastTtsProvider.GEMINI_MULTISPEAKER,
   val podcastLanguage: PodcastLanguage = PodcastLanguage.ENGLISH,
   val podcastHostCount: Int = 2, // 2 or 3 hosts

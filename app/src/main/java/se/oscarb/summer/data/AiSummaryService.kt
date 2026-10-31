@@ -109,44 +109,74 @@ class AiSummaryService(private val appContext: Context) {
       """.trimIndent()
     }.joinToString("\n\n")
 
-    val hostRolesBlock = if (hostC != null) {
-      """
-      HOSTS (3-HOST PANEL):
-      - $hostA: The warm, curious lead host who opens the show, drives the narrative arc, and connects the stories.
-      - $hostB: The sharp analyst who unpacks the deepest facts, technical/cultural details, and core takeaways.
-      - $hostC: The lively, pragmatic third co-host who adds fresh perspectives, witty reactions, and real-world implications.
-      - Keep all three hosts actively involved across the episode with natural back-and-forth dynamics.
-      """.trimIndent()
-    } else {
-      """
-      HOSTS (2-HOST CONVERSATION):
-      - $hostA: The warm, curious lead host who opens the show, drives the narrative arc, and connects the dots.
-      - $hostB: The sharp, insightful co-host who brings out the most interesting facts, nuances, and "why it matters" takeaways.
-      """.trimIndent()
-    }
+    val isWaveform = settings.podcastStyle == PodcastStyle.MKBHD_WAVEFORM
 
-    val introRequirement = when (language) {
-      PodcastLanguage.SWEDISH -> {
-        val introExample = if (hostC != null) {
-          "\"Välkomna till ett nytt avsnitt av Summer! Idag är det $formattedDate. Jag heter $hostA, och med mig har jag $hostB och $hostC...\""
-        } else {
-          "\"Välkomna till ett nytt avsnitt av Summer! Idag är det $formattedDate. Jag heter $hostA, och med mig har jag $hostB...\""
-        }
+    val hostRolesBlock = if (isWaveform) {
+      if (hostC != null) {
         """
-        MANDATORY OPENING PRESENTATION:
-        - Start Turn 1 with a warm, natural welcome to another episode of "Summer", state today's date ($formattedDate), and have the hosts introduce themselves by name (for example: $introExample), with the co-host(s) greeting briefly before teasing today's overarching theme.
+        HOST PERSONAS (WAVEFORM / MKBHD TECH-STUDIO HANGOUT VIBE):
+        - $hostA (Lead Reviewer - Marques archetype): Calm, grounded, analytical, skeptical of marketing spin. Focuses on real-world UX, build quality, camera consistency, pricing ladder traps, and "Who is this actually for?". Uses phrases like "Look, at the end of the day...", "Here's the thing though...".
+        - $hostB (Co-Host & Producer - Andrew archetype): Energetic, conversational glue, inquisitive, pragmatic consumer advocate. Paces conversation, challenges $hostA and $hostC with devil's-advocate questions, and calls out absurd price tags.
+        - $hostC (Deep-Dive Specialist - David archetype): Witty, slightly sarcastic, loves silicon economics, supply chain drama, historical tech flops, and regulatory battles.
+        """.trimIndent()
+      } else {
+        """
+        HOST PERSONAS (WAVEFORM / MKBHD TECH-STUDIO HANGOUT VIBE):
+        - $hostA (Lead Reviewer - Marques archetype): Calm, grounded, analytical, skeptical of marketing spin. Focuses on real-world UX, build quality, pricing ladders, and "Who is this actually for?". Uses phrases like "Look, at the end of the day...", "Here's the thing though...".
+        - $hostB (Co-Host & Producer - Andrew archetype): Energetic, conversational glue, inquisitive consumer advocate. Paces the conversation, plays devil's advocate, and challenges assumptions.
         """.trimIndent()
       }
-      PodcastLanguage.ENGLISH -> {
-        val introExample = if (hostC != null) {
-          "\"Welcome back to another episode of Summer! Today is $formattedDate — I'm $hostA, and I'm joined today by $hostB and $hostC...\""
-        } else {
-          "\"Welcome back to another episode of Summer! Today is $formattedDate — I'm $hostA, and with me is $hostB...\""
-        }
+    } else {
+      if (hostC != null) {
         """
-        MANDATORY OPENING PRESENTATION:
-        - Start Turn 1 with a warm, natural welcome to another episode of "Summer", state today's date ($formattedDate), and have the hosts introduce themselves by name (for example: $introExample), with the co-host(s) greeting briefly before teasing today's overarching theme.
+        HOSTS (3-HOST PANEL):
+        - $hostA: The warm, curious lead host who opens the show, drives the narrative arc, and connects the stories.
+        - $hostB: The sharp analyst who unpacks the deepest facts, technical/cultural details, and core takeaways.
+        - $hostC: The lively, pragmatic third co-host who adds fresh perspectives, witty reactions, and real-world implications.
+        - Keep all three hosts actively involved across the episode with natural back-and-forth dynamics.
         """.trimIndent()
+      } else {
+        """
+        HOSTS (2-HOST CONVERSATION):
+        - $hostA: The warm, curious lead host who opens the show, drives the narrative arc, and connects the dots.
+        - $hostB: The sharp, insightful co-host who brings out the most interesting facts, nuances, and "why it matters" takeaways.
+        """.trimIndent()
+      }
+    }
+
+    val introRequirement = if (isWaveform) {
+      """
+      CONVERSATIONAL STYLE & COLD OPEN (ANTI-SLOP GUIDELINES):
+      - NO cheesy podcast clichés: Never say "Welcome back to another exciting episode", "Buckle up", "Let's dive right in", or "Without further ado".
+      - Start in media res or with a casual studio cold open: Begin with a relaxed studio observation, gadget comment, or jump straight into the meat of the news ("Okay, so we have to talk about...", "Wait, did you actually see that announcement?").
+      - Short, overlapping turns: Keep most turns between 1 and 4 sentences. Real hosts interrupt, validate ("Right, exactly."), and build on each other's points rather than delivering monologues.
+      - Opinions over Wikipedia summaries: Don't just list specs. Debate whether the specs actually matter to a normal person buying or using this.
+      - Inline vocal tags: You may include inline tags like [laugh], [chuckle], [sigh], [uhm], or [pause] sparingly for realism.
+      """.trimIndent()
+    } else {
+      when (language) {
+        PodcastLanguage.SWEDISH -> {
+          val introExample = if (hostC != null) {
+            "\"Välkomna till ett nytt avsnitt av Summer! Idag är det $formattedDate. Jag heter $hostA, och med mig har jag $hostB och $hostC...\""
+          } else {
+            "\"Välkomna till ett nytt avsnitt av Summer! Idag är det $formattedDate. Jag heter $hostA, och med mig har jag $hostB...\""
+          }
+          """
+          MANDATORY OPENING PRESENTATION:
+          - Start Turn 1 with a warm, natural welcome to another episode of "Summer", state today's date ($formattedDate), and have the hosts introduce themselves by name (for example: $introExample), with the co-host(s) greeting briefly before teasing today's overarching theme.
+          """.trimIndent()
+        }
+        PodcastLanguage.ENGLISH -> {
+          val introExample = if (hostC != null) {
+            "\"Welcome back to another episode of Summer! Today is $formattedDate — I'm $hostA, and I'm joined today by $hostB and $hostC...\""
+          } else {
+            "\"Welcome back to another episode of Summer! Today is $formattedDate — I'm $hostA, and with me is $hostB...\""
+          }
+          """
+          MANDATORY OPENING PRESENTATION:
+          - Start Turn 1 with a warm, natural welcome to another episode of "Summer", state today's date ($formattedDate), and have the hosts introduce themselves by name (for example: $introExample), with the co-host(s) greeting briefly before teasing today's overarching theme.
+          """.trimIndent()
+        }
       }
     }
 
