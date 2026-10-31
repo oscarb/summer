@@ -1,9 +1,11 @@
 package se.oscarb.summer.ui.main
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -16,21 +18,31 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import se.oscarb.summer.theme.NewsreaderFontFamily
+import se.oscarb.summer.theme.ManropeFontFamily
+import se.oscarb.summer.theme.SummerCardBackground
+import se.oscarb.summer.theme.SummerHeadline
+import se.oscarb.summer.theme.SummerOutlineVariant
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -41,9 +53,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -53,53 +68,37 @@ import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Unarchive
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -109,9 +108,6 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -121,29 +117,72 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
-import se.oscarb.summer.data.AiBackend
+import se.oscarb.summer.R
 import se.oscarb.summer.data.AppSettings
 import se.oscarb.summer.data.DigestEntry
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import kotlin.math.roundToInt
+import se.oscarb.summer.data.AiBackend
 import se.oscarb.summer.data.GeminiCatalog
-import se.oscarb.summer.data.LinkFilter
 import se.oscarb.summer.data.OnDeviceTtsCatalog
+import se.oscarb.summer.data.PodcastTtsProvider
+import se.oscarb.summer.data.TtsVoiceOption
+import se.oscarb.summer.data.LinkFilter
 import se.oscarb.summer.data.PodcastCastCatalog
 import se.oscarb.summer.data.PodcastLanguage
-import se.oscarb.summer.data.PodcastTtsProvider
 import se.oscarb.summer.data.SavedWebsite
-import se.oscarb.summer.data.TtsVoiceOption
 import se.oscarb.summer.podcast.PodcastPlaybackState
+import se.oscarb.summer.theme.SummerBackground
+import se.oscarb.summer.theme.SummerBorderSubtle
+import se.oscarb.summer.theme.SummerError
+import se.oscarb.summer.theme.SummerErrorContainer
+import se.oscarb.summer.theme.SummerOnErrorContainer
+import se.oscarb.summer.theme.SummerOnPrimaryContainer
+import se.oscarb.summer.theme.SummerOnSurface
+import se.oscarb.summer.theme.SummerOnSurfaceVariant
+import se.oscarb.summer.theme.SummerPrimary
+import se.oscarb.summer.theme.SummerPrimaryContainer
+import se.oscarb.summer.theme.SummerSecondary
+import se.oscarb.summer.theme.SummerSurface
+import se.oscarb.summer.theme.SummerSurfaceContainer
+import se.oscarb.summer.theme.SummerSurfaceContainerHigh
+import se.oscarb.summer.theme.SummerSurfaceContainerHighest
+import se.oscarb.summer.theme.SummerSurfaceContainerLowest
 import se.oscarb.summer.ui.components.MarkdownText
 import se.oscarb.summer.util.ExternalBrowserLauncher
 import java.text.DateFormat
@@ -153,7 +192,64 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
-import kotlin.math.roundToInt
+
+internal fun formatDateHeaderLabel(
+  date: LocalDate,
+  today: LocalDate,
+  locale: Locale = Locale.getDefault()
+): String {
+  return when {
+    date == today -> "Today"
+    date == today.minusDays(1) -> "Yesterday"
+    date.year == today.year -> DateTimeFormatter.ofPattern("MMM d", locale).format(date)
+    else -> DateTimeFormatter.ofPattern("MMM d, yyyy", locale).format(date)
+  }
+}
+
+internal fun groupWebsitesByCreatedDate(
+  websites: List<SavedWebsite>,
+  zoneId: ZoneId = ZoneId.systemDefault(),
+  today: LocalDate = LocalDate.now(zoneId),
+  locale: Locale = Locale.getDefault()
+): List<Pair<String, List<SavedWebsite>>> {
+  if (websites.isEmpty()) return emptyList()
+  return websites
+    .sortedByDescending { it.createdAt }
+    .groupBy { site ->
+      Instant.ofEpochMilli(site.createdAt).atZone(zoneId).toLocalDate()
+    }
+    .entries
+    .sortedByDescending { it.key }
+    .map { (date, itemsForDay) ->
+      formatDateHeaderLabel(date, today, locale) to itemsForDay
+    }
+}
+
+enum class FeedMode(val title: String, val icon: ImageVector) {
+  ALL("All", Icons.Default.Layers),
+  LINKS("Links", Icons.Default.Link),
+  EPISODES("Episodes", Icons.Default.Podcasts);
+
+  fun next(): FeedMode = when (this) {
+    ALL -> LINKS
+    LINKS -> EPISODES
+    EPISODES -> ALL
+  }
+}
+
+enum class EpisodeFilter(val label: String) {
+  ALL("All Episodes"),
+  UNPLAYED("Unplayed"),
+  ENGLISH("🇬🇧 English (EN)"),
+  SWEDISH("🇸🇪 Svenska (SV)")
+}
+
+private data class FeedDateGroup(
+  val date: LocalDate,
+  val label: String,
+  val episodes: List<DigestEntry>,
+  val websites: List<SavedWebsite>
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -166,7 +262,9 @@ fun MainScreen(
   val context = LocalContext.current
   val snackbarHostState = remember { SnackbarHostState() }
 
-  var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+  var feedMode by rememberSaveable { mutableStateOf(FeedMode.ALL) }
+  var activeEpisodeFilter by rememberSaveable { mutableStateOf(EpisodeFilter.ALL) }
+  var isSettingsOpen by rememberSaveable { mutableStateOf(false) }
   var showAddLinkDialog by rememberSaveable { mutableStateOf(false) }
 
   val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -209,75 +307,239 @@ fun MainScreen(
     }
   }
 
+  // Full-screen Settings subpage when opened
+  if (isSettingsOpen) {
+    BackHandler(enabled = true) { isSettingsOpen = false }
+    Scaffold(
+      modifier = modifier.fillMaxSize(),
+      snackbarHost = { SnackbarHost(snackbarHostState) },
+      topBar = {
+        TopAppBar(
+          navigationIcon = {
+            IconButton(onClick = { isSettingsOpen = false }) {
+              Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Back",
+                tint = SummerOnSurface
+              )
+            }
+          },
+          title = {
+            Text(
+              text = "Settings",
+              style = MaterialTheme.typography.titleLarge,
+              color = SummerOnSurface
+            )
+          },
+          colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = SummerSurface
+          )
+        )
+      }
+    ) { innerPadding ->
+      Box(
+        modifier = Modifier
+          .fillMaxSize()
+          .padding(top = innerPadding.calculateTopPadding())
+      ) {
+        SettingsTab(
+          settings = state.settings,
+          verification = state.verification,
+          bottomPadding = innerPadding.calculateBottomPadding() + 24.dp,
+          onUpdateSettings = viewModel::updateSettings,
+          onVerifyGeminiTts = viewModel::verifyGeminiTts,
+          onVerifyTextBackend = viewModel::verifyTextBackend
+        )
+      }
+    }
+    return
+  }
+
+  // Main Feed Screen with Stitch Editorial Architecture
   Scaffold(
     modifier = modifier.fillMaxSize(),
     snackbarHost = { SnackbarHost(snackbarHostState) },
     topBar = {
       TopAppBar(
         title = {
-          Column {
-            Text(
-              text = "☀️ Summer",
-              style = MaterialTheme.typography.titleLarge,
-              fontWeight = FontWeight.Bold
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+              .clip(RoundedCornerShape(8.dp))
+              .clickable { feedMode = feedMode.next() }
+              .padding(horizontal = 4.dp, vertical = 4.dp)
+          ) {
+            Icon(
+              imageVector = feedMode.icon,
+              contentDescription = null,
+              tint = SummerPrimaryContainer,
+              modifier = Modifier.size(24.dp)
             )
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
-              text = when (selectedTab) {
-                0 -> "${state.unreadCount} unread website(s) • ${state.settings.selectedBackend.displayName}"
-                1 -> "${state.digests.size} saved podcast digest(s)"
-                else -> "AI Providers, Podcast Voices & Browser Setup"
-              },
-              style = MaterialTheme.typography.labelSmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
+              text = feedMode.title,
+              style = MaterialTheme.typography.headlineLarge.copy(
+                fontFamily = NewsreaderFontFamily,
+                fontWeight = FontWeight.Medium,
+                fontSize = 26.sp
+              ),
+              color = SummerOnSurface
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Icon(
+              imageVector = Icons.Default.ExpandMore,
+              contentDescription = "Switch view mode",
+              tint = MaterialTheme.colorScheme.outline,
+              modifier = Modifier.size(22.dp)
             )
           }
         },
         actions = {
-          if (selectedTab == 0) {
-            IconButton(onClick = { showAddLinkDialog = true }) {
-              Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "Add URL manually"
-              )
-            }
+          IconButton(onClick = { showAddLinkDialog = true }) {
+            Icon(
+              imageVector = Icons.Default.Add,
+              contentDescription = "Add URL manually",
+              tint = SummerOnSurfaceVariant
+            )
+          }
+          IconButton(onClick = { isSettingsOpen = true }) {
+            Icon(
+              imageVector = Icons.Default.Settings,
+              contentDescription = "Settings",
+              tint = SummerOnSurfaceVariant
+            )
           }
         },
         colors = TopAppBarDefaults.topAppBarColors(
-          containerColor = MaterialTheme.colorScheme.surface
+          containerColor = SummerSurface
         )
       )
-    },
-    floatingActionButton = {
-      if (selectedTab == 0 && state.unreadCount > 0) {
-        ExtendedFloatingActionButton(
-          onClick = {
-            ensureNotificationPermissionForPodcast()
-            viewModel.triggerCatchMeUpDigest()
-          },
-          icon = {
-            if (state.isGeneratingDigest) {
-              CircularProgressIndicator(
-                modifier = Modifier.size(20.dp),
-                strokeWidth = 2.dp
-              )
-            } else {
-              Icon(Icons.Default.Podcasts, contentDescription = null)
-            }
-          },
-          text = {
-            Text(
-              if (state.isGeneratingDigest) {
-                "Creating Podcast..."
-              } else {
-                "Catch Me Up (${state.unreadCount})"
-              }
-            )
-          }
-        )
+    }
+  ) { innerPadding ->
+    Box(
+      modifier = Modifier
+        .fillMaxSize()
+        .padding(top = innerPadding.calculateTopPadding())
+    ) {
+      val today = remember { LocalDate.now() }
+      val yesterday = remember { today.minusDays(1) }
+
+      val filteredDigests = remember(state.digests, activeEpisodeFilter) {
+        when (activeEpisodeFilter) {
+          EpisodeFilter.ALL -> state.digests
+          EpisodeFilter.UNPLAYED -> state.digests.filter { it.podcastAudioPath != null }
+          EpisodeFilter.ENGLISH -> state.digests.filter { it.language == PodcastLanguage.ENGLISH }
+          EpisodeFilter.SWEDISH -> state.digests.filter { it.language == PodcastLanguage.SWEDISH }
+        }
       }
-    },
-    bottomBar = {
-      Column {
+
+      val dateGroups = remember(feedMode, state.filteredWebsites, filteredDigests) {
+        val dateToEpisodes = mutableMapOf<LocalDate, MutableList<DigestEntry>>()
+        val dateToWebsites = mutableMapOf<LocalDate, MutableList<SavedWebsite>>()
+
+        if (feedMode == FeedMode.ALL || feedMode == FeedMode.EPISODES) {
+          for (digest in filteredDigests) {
+            val d = Instant.ofEpochMilli(digest.createdAt).atZone(ZoneId.systemDefault()).toLocalDate()
+            dateToEpisodes.getOrPut(d) { mutableListOf() }.add(digest)
+          }
+        }
+
+        if (feedMode == FeedMode.ALL || feedMode == FeedMode.LINKS) {
+          for (site in state.filteredWebsites) {
+            val d = Instant.ofEpochMilli(site.createdAt).atZone(ZoneId.systemDefault()).toLocalDate()
+            dateToWebsites.getOrPut(d) { mutableListOf() }.add(site)
+          }
+        }
+
+        val allDates = (dateToEpisodes.keys + dateToWebsites.keys).sortedDescending()
+
+        allDates.map { date ->
+          val label = when (date) {
+            today -> "TODAY"
+            yesterday -> "YESTERDAY"
+            else -> date.format(DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.getDefault())).uppercase()
+          }
+          FeedDateGroup(
+            date = date,
+            label = label,
+            episodes = dateToEpisodes[date]?.sortedByDescending { it.createdAt } ?: emptyList(),
+            websites = dateToWebsites[date]?.sortedByDescending { it.createdAt } ?: emptyList()
+          )
+        }
+      }
+
+      Column(modifier = Modifier.fillMaxSize()) {
+        // Contextual Filter Chips bar
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          if (feedMode == FeedMode.ALL || feedMode == FeedMode.LINKS) {
+            LinkFilter.entries.forEach { filter ->
+              val selected = state.activeFilter == filter
+              FilterChip(
+                selected = selected,
+                onClick = { viewModel.setFilter(filter) },
+                label = {
+                  Text(
+                    text = when (filter) {
+                      LinkFilter.UNREAD -> "Unread (${state.unreadCount})"
+                      LinkFilter.ALL -> "All Links"
+                      LinkFilter.ARCHIVED -> "Archived"
+                    },
+                    style = MaterialTheme.typography.labelMedium
+                  )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                  selectedContainerColor = SummerPrimaryContainer.copy(alpha = 0.2f),
+                  selectedLabelColor = SummerPrimaryContainer,
+                  containerColor = SummerSurfaceContainerHigh.copy(alpha = 0.6f),
+                  labelColor = SummerOnSurfaceVariant
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                  enabled = true,
+                  selected = selected,
+                  borderColor = SummerBorderSubtle,
+                  selectedBorderColor = SummerPrimaryContainer.copy(alpha = 0.5f)
+                ),
+                shape = CircleShape
+              )
+            }
+          } else {
+            EpisodeFilter.entries.forEach { filter ->
+              val selected = activeEpisodeFilter == filter
+              FilterChip(
+                selected = selected,
+                onClick = { activeEpisodeFilter = filter },
+                label = {
+                  Text(
+                    text = filter.label,
+                    style = MaterialTheme.typography.labelMedium
+                  )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                  selectedContainerColor = SummerPrimaryContainer.copy(alpha = 0.2f),
+                  selectedLabelColor = SummerPrimaryContainer,
+                  containerColor = SummerSurfaceContainerHigh.copy(alpha = 0.6f),
+                  labelColor = SummerOnSurfaceVariant
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                  enabled = true,
+                  selected = selected,
+                  borderColor = SummerBorderSubtle,
+                  selectedBorderColor = SummerPrimaryContainer.copy(alpha = 0.5f)
+                ),
+                shape = CircleShape
+              )
+            }
+          }
+        }
+
+        // Transient In-App Post-Save Banner (if recently saved)
         AnimatedVisibility(
           visible = state.postSaveEvent != null,
           enter = expandVertically() + fadeIn(),
@@ -303,93 +565,112 @@ fun MainScreen(
             )
           }
         }
-        if (
-          state.podcastPlayback.isActive ||
-          state.podcastPlayback.isGeneratingInBackground ||
-          state.podcastPlayback.isQuietWindowWaiting
-        ) {
-          PodcastMiniPlayerBar(
-            playback = state.podcastPlayback,
-            onTogglePlayPause = viewModel::togglePodcastPlayPause,
-            onSkipBack15 = { viewModel.skipPodcastBy(-15_000L) },
-            onSkipForward15 = { viewModel.skipPodcastBy(15_000L) },
-            onSeekTo = viewModel::seekPodcastTo,
-            onClose = viewModel::stopPodcastPlayback,
-            onOpenDetails = viewModel::openActivePodcastDetails,
-            onTriggerQuietWindowNow = {
+
+        // Feed List / Empty State
+        if (dateGroups.isEmpty()) {
+          EmptyFeedView(
+            feedMode = feedMode,
+            onAddLinkClick = { showAddLinkDialog = true },
+            onGeneratePodcast = {
               ensureNotificationPermissionForPodcast()
-              viewModel.triggerQuietWindowPodcastNow()
-            },
-            onCancelQuietWindow = viewModel::cancelQuietWindowCountdown
+              viewModel.triggerCatchMeUpDigest()
+            }
           )
-        }
-        NavigationBar {
-          NavigationBarItem(
-            selected = selectedTab == 0,
-            onClick = { selectedTab = 0 },
-            icon = { Icon(Icons.Default.Link, contentDescription = null) },
-            label = { Text("Saved Links") }
-          )
-          NavigationBarItem(
-            selected = selectedTab == 1,
-            onClick = { selectedTab = 1 },
-            icon = { Icon(Icons.Default.History, contentDescription = null) },
-            label = { Text("Digests") }
-          )
-          NavigationBarItem(
-            selected = selectedTab == 2,
-            onClick = { selectedTab = 2 },
-            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-            label = { Text("Settings") }
-          )
+        } else {
+          LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+              start = 16.dp,
+              end = 16.dp,
+              top = 6.dp,
+              bottom = innerPadding.calculateBottomPadding() + 100.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+          ) {
+            dateGroups.forEach { group ->
+              item(key = "header_${group.date}") {
+                val totalCount = group.episodes.size + group.websites.size
+                Row(
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 4.dp, start = 4.dp, end = 4.dp),
+                  horizontalArrangement = Arrangement.SpaceBetween,
+                  verticalAlignment = Alignment.CenterVertically
+                ) {
+                  Text(
+                    text = group.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SummerOnSurfaceVariant,
+                    letterSpacing = 1.sp
+                  )
+                  Text(
+                    text = "$totalCount ${if (totalCount == 1) "ITEM" else "ITEMS"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                  )
+                }
+              }
+
+              // Episodes first within date group
+              items(group.episodes, key = { "episode_${it.id}" }) { episode ->
+                DigestEpisodeCard(
+                  digest = episode,
+                  playback = state.podcastPlayback,
+                  onOpenDigest = { viewModel.openSavedDigest(episode) },
+                  onPlayOrGenerate = {
+                    ensureNotificationPermissionForPodcast()
+                    viewModel.playOrGenerateDigestPodcast(episode, forceRegenerate = false)
+                  },
+                  onDelete = { viewModel.deleteDigest(episode.id) }
+                )
+              }
+
+              // Websites next within date group
+              items(group.websites, key = { "link_${it.id}" }) { website ->
+                WebsiteItemCard(
+                  website = website,
+                  isExpanded = website.id in state.expandedWebsiteIds,
+                  onCardClick = { viewModel.onWebsiteCardClicked(website) },
+                  onSummarizeClick = { viewModel.resummarizeWebsite(website.id) },
+                  onToggleArchive = { viewModel.toggleArchive(website) },
+                  onDelete = { viewModel.deleteWebsite(website.id) },
+                  onOpenExternal = {
+                    ExternalBrowserLauncher.openInExternalBrowser(
+                      context = context,
+                      url = website.url,
+                      preferredBrowserPackage = state.settings.preferredBrowserPackage,
+                      useCustomTabs = state.settings.useCustomTabs
+                    )
+                  }
+                )
+              }
+            }
+          }
         }
       }
-    }
-  ) { innerPadding ->
-    Box(
-      modifier = Modifier
-        .fillMaxSize()
-        .padding(innerPadding)
-    ) {
-      when (selectedTab) {
-        0 -> SavedLinksTab(
-          state = state,
-          onFilterSelect = viewModel::setFilter,
-          onCardClick = viewModel::onWebsiteCardClicked,
-          onSummarizeClick = viewModel::resummarizeWebsite,
-          onToggleArchive = viewModel::toggleArchive,
-          onDelete = viewModel::deleteWebsite,
-          onOpenExternal = { url ->
-            ExternalBrowserLauncher.openInExternalBrowser(
-              context = context,
-              url = url,
-              preferredBrowserPackage = state.settings.preferredBrowserPackage,
-              useCustomTabs = state.settings.useCustomTabs
-            )
-          },
-          onAddSampleOrUrl = { showAddLinkDialog = true }
-        )
-        1 -> DigestsHistoryTab(
-          digests = state.digests,
+
+      // Floating Interactive Bottom Dock / Mini-Player
+      Box(
+        modifier = Modifier
+          .fillMaxSize()
+          .padding(
+            bottom = innerPadding.calculateBottomPadding() + 16.dp,
+            start = 16.dp,
+            end = 16.dp
+          ),
+        contentAlignment = Alignment.BottomCenter
+      ) {
+        SummerFloatingDock(
+          unreadCount = state.unreadCount,
+          isGeneratingDigest = state.isGeneratingDigest,
           playback = state.podcastPlayback,
-          onOpenDigest = viewModel::openSavedDigest,
-          onPlayOrGeneratePodcast = { digest ->
+          onCatchMeUp = {
             ensureNotificationPermissionForPodcast()
-            viewModel.playOrGenerateDigestPodcast(digest, forceRegenerate = false)
-          },
-          onDeleteDigest = viewModel::deleteDigest,
-          onGenerateNew = {
-            ensureNotificationPermissionForPodcast()
-            selectedTab = 0
             viewModel.triggerCatchMeUpDigest()
-          }
-        )
-        2 -> SettingsTab(
-          settings = state.settings,
-          verification = state.verification,
-          onUpdateSettings = viewModel::updateSettings,
-          onVerifyGeminiTts = viewModel::verifyGeminiTts,
-          onVerifyTextBackend = viewModel::verifyTextBackend
+          },
+          onTogglePlayPause = viewModel::togglePodcastPlayPause,
+          onClosePlayer = viewModel::stopPodcastPlayback,
+          onOpenPlayerDetails = viewModel::openActivePodcastDetails
         )
       }
     }
@@ -400,7 +681,8 @@ fun MainScreen(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
       onDismissRequest = viewModel::dismissDigestSheet,
-      sheetState = sheetState
+      sheetState = sheetState,
+      containerColor = SummerBackground
     ) {
       CatchMeUpDigestSheetContent(
         digest = activeDigest,
@@ -445,13 +727,14 @@ private fun InAppPostSaveActionBar(
   onDismiss: () -> Unit
 ) {
   Surface(
-    color = MaterialTheme.colorScheme.inverseSurface,
-    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-    shape = RoundedCornerShape(14.dp),
-    shadowElevation = 6.dp,
+    color = SummerSurfaceContainerHigh,
+    contentColor = SummerOnSurface,
+    shape = RoundedCornerShape(16.dp),
+    border = BorderStroke(1.dp, SummerPrimaryContainer.copy(alpha = 0.4f)),
+    shadowElevation = 8.dp,
     modifier = Modifier
       .fillMaxWidth()
-      .padding(horizontal = 12.dp, vertical = 6.dp)
+      .padding(horizontal = 16.dp, vertical = 6.dp)
   ) {
     Row(
       modifier = Modifier
@@ -473,23 +756,23 @@ private fun InAppPostSaveActionBar(
       )
       TextButton(onClick = onOpenLink) {
         Text(
-          text = "Open Link",
-          color = MaterialTheme.colorScheme.inversePrimary,
-          fontWeight = FontWeight.SemiBold
+          text = "Open",
+          color = SummerPrimaryContainer,
+          style = MaterialTheme.typography.labelMedium
         )
       }
       TextButton(onClick = onGeneratePodcast) {
         Text(
           text = "Podcast",
-          color = MaterialTheme.colorScheme.inversePrimary,
-          fontWeight = FontWeight.SemiBold
+          color = SummerPrimaryContainer,
+          style = MaterialTheme.typography.labelMedium
         )
       }
       IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
         Icon(
           imageVector = Icons.Default.Close,
           contentDescription = "Dismiss",
-          tint = MaterialTheme.colorScheme.inverseOnSurface,
+          tint = SummerOnSurfaceVariant,
           modifier = Modifier.size(16.dp)
         )
       }
@@ -497,413 +780,518 @@ private fun InAppPostSaveActionBar(
   }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PodcastMiniPlayerBar(
+internal fun SummerFloatingDock(
+  unreadCount: Int,
+  isGeneratingDigest: Boolean,
   playback: PodcastPlaybackState,
+  onCatchMeUp: () -> Unit,
   onTogglePlayPause: () -> Unit,
-  onSkipBack15: () -> Unit,
-  onSkipForward15: () -> Unit,
-  onSeekTo: (Long) -> Unit,
-  onClose: () -> Unit,
-  onOpenDetails: () -> Unit,
-  onTriggerQuietWindowNow: () -> Unit,
-  onCancelQuietWindow: () -> Unit
+  onClosePlayer: () -> Unit,
+  onOpenPlayerDetails: () -> Unit
 ) {
-  Surface(
-    tonalElevation = 6.dp,
-    shadowElevation = 6.dp,
-    color = MaterialTheme.colorScheme.secondaryContainer,
-    modifier = Modifier.fillMaxWidth()
+  AnimatedVisibility(
+    visible = playback.isActive || isGeneratingDigest || playback.isGeneratingInBackground || unreadCount > 0,
+    enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+    exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
   ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-      if (playback.isGeneratingInBackground) {
-        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-      }
-
-      if (playback.isActive) {
-        var scrubPositionMs by remember(playback.audioFilePath) { mutableStateOf<Float?>(null) }
-        val displayedPositionMs = scrubPositionMs?.toLong() ?: playback.positionMs
-
-        Row(
-          modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenDetails)
-            .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 2.dp),
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(36.dp)
-          ) {
-            Box(contentAlignment = Alignment.Center) {
+    when {
+      playback.isActive -> {
+        val dismissState = rememberSwipeToDismissBoxState(
+          confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.StartToEnd || value == SwipeToDismissBoxValue.EndToStart) {
+              onClosePlayer()
+              true
+            } else false
+          }
+        )
+        SwipeToDismissBox(
+          state = dismissState,
+          backgroundContent = {
+            Box(
+              modifier = Modifier
+                .fillMaxWidth()
+                .height(68.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(SummerErrorContainer.copy(alpha = 0.5f))
+                .padding(horizontal = 20.dp),
+              contentAlignment = Alignment.CenterEnd
+            ) {
               Icon(
-                imageVector = if (playback.isPlaying) Icons.Default.GraphicEq else Icons.Default.Headphones,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(20.dp)
+                imageVector = Icons.Default.Close,
+                contentDescription = "Dismiss",
+                tint = SummerOnErrorContainer
               )
             }
-          }
-
-          Spacer(modifier = Modifier.width(10.dp))
-
-          Column(modifier = Modifier.weight(1f)) {
-            Text(
-              text = playback.title.ifBlank { "☀️ Summer Podcast" },
-              style = MaterialTheme.typography.labelLarge,
-              fontWeight = FontWeight.Bold,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis
-            )
-            Text(
-              text = buildString {
-                append(formatDurationMs(displayedPositionMs))
-                if (playback.durationMs > 0L) {
-                  append(" / ")
-                  append(formatDurationMs(playback.durationMs))
-                }
-                if (playback.subtitle.isNotBlank()) {
-                  append(" • ")
-                  append(playback.subtitle)
-                }
-              },
-              style = MaterialTheme.typography.labelSmall,
-              color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis
+          },
+          content = {
+            FloatingMiniPlayerCard(
+              playback = playback,
+              onTogglePlayPause = onTogglePlayPause,
+              onClose = onClosePlayer,
+              onOpenDetails = onOpenPlayerDetails
             )
           }
-
-          IconButton(onClick = onSkipBack15, modifier = Modifier.size(36.dp)) {
-            Icon(
-              imageVector = Icons.Default.FastRewind,
-              contentDescription = "Back 15 seconds",
-              modifier = Modifier.size(20.dp)
-            )
-          }
-          IconButton(onClick = onTogglePlayPause, modifier = Modifier.size(40.dp)) {
-            Icon(
-              imageVector = if (playback.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-              contentDescription = if (playback.isPlaying) "Pause" else "Play"
-            )
-          }
-          IconButton(onClick = onSkipForward15, modifier = Modifier.size(36.dp)) {
-            Icon(
-              imageVector = Icons.Default.FastForward,
-              contentDescription = "Forward 15 seconds",
-              modifier = Modifier.size(20.dp)
-            )
-          }
-          IconButton(onClick = onClose, modifier = Modifier.size(36.dp)) {
-            Icon(
-              imageVector = Icons.Default.Close,
-              contentDescription = "Close player",
-              modifier = Modifier.size(18.dp)
-            )
-          }
-        }
-
-        if (playback.durationMs > 0L) {
-          Slider(
-            value = (scrubPositionMs ?: playback.positionMs.toFloat())
-              .coerceIn(0f, playback.durationMs.toFloat()),
-            onValueChange = { newPos -> scrubPositionMs = newPos },
-            onValueChangeFinished = {
-              scrubPositionMs?.let { target -> onSeekTo(target.toLong()) }
-              scrubPositionMs = null
-            },
-            valueRange = 0f..playback.durationMs.toFloat(),
-            modifier = Modifier
-              .fillMaxWidth()
-              .height(22.dp)
-              .padding(horizontal = 12.dp)
-          )
-        }
-      } else if (playback.isGeneratingInBackground) {
-        Row(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          CircularProgressIndicator(
-            modifier = Modifier.size(20.dp),
-            strokeWidth = 2.dp
-          )
-          Spacer(modifier = Modifier.width(12.dp))
-          Column(modifier = Modifier.weight(1f)) {
-            Text(
-              text = "🎙️ Generating: ${playback.generationTitle ?: "Summer Podcast"}",
-              style = MaterialTheme.typography.labelLarge,
-              fontWeight = FontWeight.SemiBold,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis
-            )
-            Text(
-              text = playback.generationStatusText
-                ?: "Silent in background — you'll get a notification to play when ready",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis
-            )
-          }
-        }
-      } else if (playback.isQuietWindowWaiting) {
-        var nowMs by remember(playback.quietWindowDeadlineMs) {
-          mutableLongStateOf(System.currentTimeMillis())
-        }
-        LaunchedEffect(playback.quietWindowDeadlineMs) {
-          while (true) {
-            nowMs = System.currentTimeMillis()
-            if (nowMs >= playback.quietWindowDeadlineMs) break
-            delay(1_000L)
-          }
-        }
-        val remainingMs = (playback.quietWindowDeadlineMs - nowMs).coerceAtLeast(0L)
-
-        Row(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          Icon(
-            imageVector = Icons.Default.Schedule,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(20.dp)
-          )
-          Spacer(modifier = Modifier.width(10.dp))
-          Column(modifier = Modifier.weight(1f)) {
-            Text(
-              text = "Auto-podcast in ${formatDurationMs(remainingMs)}",
-              style = MaterialTheme.typography.labelLarge,
-              fontWeight = FontWeight.SemiBold,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis
-            )
-            Text(
-              text = "${playback.quietWindowLinkCount} links in session • resets if you save another",
-              style = MaterialTheme.typography.labelSmall,
-              color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis
-            )
-          }
-          TextButton(onClick = onTriggerQuietWindowNow) {
-            Text("Start Now", fontWeight = FontWeight.SemiBold)
-          }
-          IconButton(onClick = onCancelQuietWindow, modifier = Modifier.size(32.dp)) {
-            Icon(
-              imageVector = Icons.Default.Close,
-              contentDescription = "Cancel auto-podcast timer",
-              modifier = Modifier.size(18.dp)
-            )
-          }
-        }
+        )
+      }
+      isGeneratingDigest || playback.isGeneratingInBackground -> {
+        FloatingGeneratingCard(
+          title = playback.generationTitle ?: "GENERATING EPISODE",
+          statusText = playback.generationStatusText ?: "Writing podcast script..."
+        )
+      }
+      unreadCount > 0 -> {
+        FloatingCatchMeUpPill(
+          unreadCount = unreadCount,
+          onClick = onCatchMeUp
+        )
       }
     }
   }
 }
 
-private fun formatDurationMs(ms: Long): String {
-  val totalSeconds = (ms.coerceAtLeast(0L) / 1000L).toInt()
-  val minutes = totalSeconds / 60
-  val seconds = totalSeconds % 60
-  return "%d:%02d".format(minutes, seconds)
-}
-
-internal fun formatDateHeaderLabel(
-  date: LocalDate,
-  today: LocalDate,
-  locale: Locale = Locale.getDefault()
-): String {
-  return when {
-    date == today -> "Today"
-    date == today.minusDays(1) -> "Yesterday"
-    date.year == today.year -> DateTimeFormatter.ofPattern("MMM d", locale).format(date)
-    else -> DateTimeFormatter.ofPattern("MMM d, yyyy", locale).format(date)
-  }
-}
-
-internal fun groupWebsitesByCreatedDate(
-  websites: List<SavedWebsite>,
-  zoneId: ZoneId = ZoneId.systemDefault(),
-  today: LocalDate = LocalDate.now(zoneId),
-  locale: Locale = Locale.getDefault()
-): List<Pair<String, List<SavedWebsite>>> {
-  if (websites.isEmpty()) return emptyList()
-  return websites
-    .sortedByDescending { it.createdAt }
-    .groupBy { site ->
-      Instant.ofEpochMilli(site.createdAt).atZone(zoneId).toLocalDate()
-    }
-    .entries
-    .sortedByDescending { it.key }
-    .map { (date, itemsForDay) ->
-      formatDateHeaderLabel(date, today, locale) to itemsForDay
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-private fun SavedLinksTab(
-  state: SummerUiState,
-  onFilterSelect: (LinkFilter) -> Unit,
-  onCardClick: (SavedWebsite) -> Unit,
-  onSummarizeClick: (String) -> Unit,
-  onToggleArchive: (SavedWebsite) -> Unit,
-  onDelete: (String) -> Unit,
-  onOpenExternal: (String) -> Unit,
-  onAddSampleOrUrl: () -> Unit
+internal fun FloatingMiniPlayerCard(
+  playback: PodcastPlaybackState,
+  onTogglePlayPause: () -> Unit,
+  onClose: () -> Unit,
+  onOpenDetails: () -> Unit
 ) {
-  val dateSections = remember(state.filteredWebsites) {
-    groupWebsitesByCreatedDate(state.filteredWebsites)
-  }
+  Surface(
+    color = SummerSurfaceContainerHigh,
+    shape = RoundedCornerShape(20.dp),
+    border = BorderStroke(1.dp, SummerPrimaryContainer.copy(alpha = 0.35f)),
+    shadowElevation = 12.dp,
+    modifier = Modifier
+      .fillMaxWidth()
+      .clip(RoundedCornerShape(20.dp))
+      .clickable(onClick = onOpenDetails)
+  ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        // Artwork Box with animated EQ bars and EP badge
+        Box(
+          modifier = Modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(SummerSurfaceContainerHighest)
+            .border(1.dp, SummerPrimaryContainer.copy(alpha = 0.25f), RoundedCornerShape(12.dp)),
+          contentAlignment = Alignment.Center
+        ) {
+          AnimatedEqBars(isPlaying = playback.isPlaying)
+          Text(
+            text = "EP",
+            style = MaterialTheme.typography.labelSmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontSize = 8.sp,
+              fontWeight = FontWeight.Bold,
+              letterSpacing = 0.5.sp
+            ),
+            color = SummerPrimaryContainer.copy(alpha = 0.8f),
+            modifier = Modifier
+              .align(Alignment.BottomCenter)
+              .padding(bottom = 2.dp)
+          )
+        }
 
-  Column(modifier = Modifier.fillMaxSize()) {
-    // Filter Chips Row
-    Row(
+        Spacer(modifier = Modifier.width(10.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = playback.title.ifBlank { "Catch Me Up Podcast" },
+            style = MaterialTheme.typography.titleSmall.copy(
+              fontFamily = NewsreaderFontFamily,
+              fontWeight = FontWeight.Medium,
+              fontSize = 14.sp
+            ),
+            color = SummerOnSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+          )
+          Spacer(modifier = Modifier.height(2.dp))
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+              text = playback.subtitle.ifBlank { "Maya & Leo" },
+              style = MaterialTheme.typography.labelSmall.copy(
+                fontFamily = ManropeFontFamily,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 11.sp
+              ),
+              color = SummerPrimaryContainer
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+              text = "•",
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.outline
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            val timerText = "${formatDurationMs(playback.positionMs)} / ${formatDurationMs(playback.durationMs)}"
+            Text(
+              text = timerText,
+              style = MaterialTheme.typography.labelSmall.copy(
+                fontFamily = ManropeFontFamily,
+                fontSize = 11.sp
+              ),
+              color = SummerOnSurfaceVariant
+            )
+          }
+        }
+
+        IconButton(
+          onClick = onTogglePlayPause,
+          modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(SummerPrimaryContainer)
+        ) {
+          Icon(
+            imageVector = if (playback.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+            contentDescription = if (playback.isPlaying) "Pause" else "Play",
+            tint = SummerBackground,
+            modifier = Modifier.size(20.dp)
+          )
+        }
+
+        Spacer(modifier = Modifier.width(2.dp))
+
+        IconButton(
+          onClick = onClose,
+          modifier = Modifier.size(28.dp)
+        ) {
+          Icon(
+            imageVector = Icons.Default.Close,
+            contentDescription = "Dismiss",
+            tint = SummerOnSurfaceVariant,
+            modifier = Modifier.size(16.dp)
+          )
+        }
+      }
+
+      val progress = if (playback.durationMs > 0) {
+        (playback.positionMs.toFloat() / playback.durationMs.toFloat()).coerceIn(0f, 1f)
+      } else 0f
+      LinearProgressIndicator(
+        progress = { progress },
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(2.5.dp),
+        color = SummerPrimaryContainer,
+        trackColor = SummerSurfaceContainerLowest
+      )
+    }
+  }
+}
+
+@Composable
+internal fun FloatingGeneratingCard(
+  title: String,
+  statusText: String
+) {
+  Surface(
+    color = SummerSurfaceContainerHigh,
+    shape = RoundedCornerShape(20.dp),
+    border = BorderStroke(1.dp, SummerPrimaryContainer.copy(alpha = 0.35f)),
+    shadowElevation = 12.dp,
+    modifier = Modifier.fillMaxWidth()
+  ) {
+    Column(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(horizontal = 16.dp, vertical = 8.dp),
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
-      verticalAlignment = Alignment.CenterVertically
+        .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-      LinkFilter.entries.forEach { filter ->
-        val count = when (filter) {
-          LinkFilter.UNREAD -> state.websites.count { !it.isArchived }
-          LinkFilter.ALL -> state.websites.size
-          LinkFilter.ARCHIVED -> state.websites.count { it.isArchived }
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Box(
+            modifier = Modifier
+              .size(8.dp)
+              .clip(CircleShape)
+              .background(SummerPrimaryContainer)
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Text(
+            text = title.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontWeight = FontWeight.Bold,
+              letterSpacing = 1.sp
+            ),
+            color = SummerPrimaryContainer
+          )
         }
-        FilterChip(
-          selected = state.activeFilter == filter,
-          onClick = { onFilterSelect(filter) },
-          label = { Text("${filter.label} ($count)") }
+      }
+
+      Spacer(modifier = Modifier.height(8.dp))
+
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        CircularProgressIndicator(
+          modifier = Modifier.size(18.dp),
+          color = SummerPrimaryContainer,
+          strokeWidth = 2.dp
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+          text = statusText,
+          style = MaterialTheme.typography.bodySmall.copy(
+            fontFamily = ManropeFontFamily
+          ),
+          color = SummerOnSurface,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis
+        )
+      }
+
+      Spacer(modifier = Modifier.height(10.dp))
+
+      LinearProgressIndicator(
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(3.dp)
+          .clip(RoundedCornerShape(1.5.dp)),
+        color = SummerPrimaryContainer,
+        trackColor = SummerSurfaceContainerLowest
+      )
+    }
+  }
+}
+
+@Composable
+internal fun FloatingCatchMeUpPill(
+  unreadCount: Int,
+  onClick: () -> Unit
+) {
+  Surface(
+    onClick = onClick,
+    color = SummerPrimaryContainer,
+    contentColor = SummerBackground,
+    shape = CircleShape,
+    shadowElevation = 10.dp,
+    border = BorderStroke(1.dp, SummerPrimary.copy(alpha = 0.5f)),
+    modifier = Modifier.height(48.dp)
+  ) {
+    Row(
+      verticalAlignment = Alignment.CenterVertically,
+      modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+    ) {
+      Icon(
+        imageVector = Icons.Default.GraphicEq,
+        contentDescription = null,
+        tint = SummerBackground,
+        modifier = Modifier.size(20.dp)
+      )
+      Spacer(modifier = Modifier.width(8.dp))
+      Text(
+        text = "Catch Me Up",
+        style = MaterialTheme.typography.labelMedium.copy(
+          fontFamily = ManropeFontFamily,
+          fontWeight = FontWeight.Bold,
+          fontSize = 14.sp
+        ),
+        color = SummerBackground
+      )
+      Spacer(modifier = Modifier.width(8.dp))
+      Surface(
+        shape = CircleShape,
+        color = SummerBackground
+      ) {
+        Text(
+          text = "$unreadCount",
+          style = MaterialTheme.typography.labelSmall.copy(
+            fontFamily = ManropeFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp
+          ),
+          color = SummerPrimaryContainer,
+          modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+        )
+      }
+    }
+  }
+}
+
+@Composable
+internal fun AnimatedEqBars(isPlaying: Boolean, modifier: Modifier = Modifier) {
+  val transition = rememberInfiniteTransition(label = "eq_bars")
+  val bar1 by transition.animateFloat(
+    initialValue = 4f,
+    targetValue = 16f,
+    animationSpec = infiniteRepeatable(
+      animation = tween(400),
+      repeatMode = RepeatMode.Reverse
+    ),
+    label = "bar1"
+  )
+  val bar2 by transition.animateFloat(
+    initialValue = 6f,
+    targetValue = 20f,
+    animationSpec = infiniteRepeatable(
+      animation = tween(300),
+      repeatMode = RepeatMode.Reverse
+    ),
+    label = "bar2"
+  )
+  val bar3 by transition.animateFloat(
+    initialValue = 3f,
+    targetValue = 14f,
+    animationSpec = infiniteRepeatable(
+      animation = tween(500),
+      repeatMode = RepeatMode.Reverse
+    ),
+    label = "bar3"
+  )
+
+  Row(
+    horizontalArrangement = Arrangement.spacedBy(2.5.dp),
+    verticalAlignment = Alignment.Bottom,
+    modifier = modifier.height(20.dp)
+  ) {
+    val h1 = if (isPlaying) bar1.dp else 4.dp
+    val h2 = if (isPlaying) bar2.dp else 8.dp
+    val h3 = if (isPlaying) bar3.dp else 5.dp
+
+    Box(
+      modifier = Modifier
+        .width(3.dp)
+        .height(h1)
+        .clip(RoundedCornerShape(1.5.dp))
+        .background(SummerPrimaryContainer)
+    )
+    Box(
+      modifier = Modifier
+        .width(3.dp)
+        .height(h2)
+        .clip(RoundedCornerShape(1.5.dp))
+        .background(SummerPrimaryContainer)
+    )
+    Box(
+      modifier = Modifier
+        .width(3.dp)
+        .height(h3)
+        .clip(RoundedCornerShape(1.5.dp))
+        .background(SummerPrimaryContainer)
+    )
+  }
+}
+
+@Composable
+internal fun EpisodeWaveformScrubber(
+  positionMs: Long,
+  durationMs: Long,
+  isPlaying: Boolean,
+  onPlayOrGenerate: () -> Unit,
+  modifier: Modifier = Modifier
+) {
+  val barHeights = remember {
+    listOf(
+      8f, 14f, 18f, 10f, 22f, 16f, 26f, 12f, 18f, 24f,
+      14f, 20f, 10f, 26f, 18f, 12f, 22f, 16f, 24f, 10f,
+      18f, 26f, 14f, 20f, 12f, 24f, 16f, 22f, 10f, 18f,
+      26f, 14f, 20f, 12f, 24f, 18f, 10f, 22f, 16f, 26f,
+      12f, 18f, 14f, 8f
+    )
+  }
+  val fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
+  val activeIndex = (fraction * barHeights.size).toInt().coerceIn(0, barHeights.size)
+
+  Column(modifier = modifier.fillMaxWidth()) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+      Box(
+        modifier = Modifier
+          .weight(1f)
+          .height(34.dp)
+          .clip(RoundedCornerShape(8.dp))
+          .background(SummerSurfaceContainerHigh)
+          .border(1.dp, SummerBorderSubtle.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+          .padding(horizontal = 8.dp),
+        contentAlignment = Alignment.CenterStart
+      ) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          barHeights.forEachIndexed { index, heightDp ->
+            val isPlayed = index < activeIndex
+            val isCurrent = index == activeIndex
+            Box(
+              modifier = Modifier
+                .width(if (isCurrent) 2.5.dp else 1.8.dp)
+                .height(if (isCurrent) 22.dp else heightDp.dp)
+                .clip(RoundedCornerShape(1.dp))
+                .background(
+                  when {
+                    isCurrent -> SummerPrimary
+                    isPlayed -> SummerPrimaryContainer
+                    else -> Color(0xFF524A40)
+                  }
+                )
+            )
+          }
+        }
+      }
+
+      IconButton(
+        onClick = onPlayOrGenerate,
+        modifier = Modifier
+          .size(44.dp)
+          .clip(CircleShape)
+          .background(SummerPrimaryContainer)
+      ) {
+        Icon(
+          imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+          contentDescription = if (isPlaying) "Pause podcast" else "Play podcast",
+          tint = SummerBackground,
+          modifier = Modifier.size(24.dp)
         )
       }
     }
 
-    if (state.isGeneratingDigest) {
-      LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-    }
+    Spacer(modifier = Modifier.height(4.dp))
 
-    if (state.filteredWebsites.isEmpty()) {
-      EmptySavedLinksView(
-        activeFilter = state.activeFilter,
-        onAddLinkClick = onAddSampleOrUrl
-      )
-    } else {
-      LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-          start = 16.dp,
-          end = 16.dp,
-          top = 0.dp,
-          bottom = 96.dp
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(start = 2.dp, end = 56.dp),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Text(
+        text = formatDurationMs(positionMs),
+        style = MaterialTheme.typography.labelSmall.copy(
+          fontFamily = ManropeFontFamily,
+          fontWeight = FontWeight.SemiBold,
+          fontSize = 11.sp
         ),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-      ) {
-        dateSections.forEach { (dateLabel, itemsForDay) ->
-          stickyHeader(key = "date_header_$dateLabel") {
-            Surface(
-              color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              Text(
-                text = dateLabel,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp, start = 4.dp, end = 4.dp)
-              )
-            }
-          }
-
-          items(
-            items = itemsForDay,
-            key = { it.id }
-          ) { website ->
-            val dismissState = rememberSwipeToDismissBoxState(
-              confirmValueChange = { value ->
-                when (value) {
-                  SwipeToDismissBoxValue.StartToEnd -> {
-                    onToggleArchive(website)
-                    false
-                  }
-                  SwipeToDismissBoxValue.EndToStart -> {
-                    onDelete(website.id)
-                    true
-                  }
-                  SwipeToDismissBoxValue.Settled -> false
-                }
-              }
-            )
-
-            SwipeToDismissBox(
-              state = dismissState,
-              backgroundContent = {
-                val direction = dismissState.dismissDirection
-                val bgColor = when (direction) {
-                  SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.secondaryContainer
-                  SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                  else -> MaterialTheme.colorScheme.surfaceVariant
-                }
-                Box(
-                  modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(bgColor)
-                    .padding(horizontal = 20.dp),
-                  contentAlignment = when (direction) {
-                    SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
-                    else -> Alignment.CenterEnd
-                  }
-                ) {
-                  if (direction == SwipeToDismissBoxValue.StartToEnd) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                      Icon(
-                        imageVector = if (website.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
-                        contentDescription = null
-                      )
-                      Spacer(Modifier.width(8.dp))
-                      Text(if (website.isArchived) "Move to Unread" else "Archive")
-                    }
-                  } else if (direction == SwipeToDismissBoxValue.EndToStart) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                      Text("Delete", color = MaterialTheme.colorScheme.onErrorContainer)
-                      Spacer(Modifier.width(8.dp))
-                      Icon(
-                        imageVector = Icons.Default.DeleteOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onErrorContainer
-                      )
-                    }
-                  }
-                }
-              }
-            ) {
-              WebsiteItemCard(
-                website = website,
-                isExpanded = website.id in state.expandedWebsiteIds,
-                onCardClick = { onCardClick(website) },
-                onSummarizeClick = { onSummarizeClick(website.id) },
-                onToggleArchive = { onToggleArchive(website) },
-                onDelete = { onDelete(website.id) },
-                onOpenExternal = { onOpenExternal(website.url) }
-              )
-            }
-          }
-        }
-      }
+        color = SummerPrimaryContainer
+      )
+      Text(
+        text = if (durationMs > 0) formatDurationMs(durationMs) else "--:--",
+        style = MaterialTheme.typography.labelSmall.copy(
+          fontFamily = ManropeFontFamily,
+          fontSize = 11.sp
+        ),
+        color = MaterialTheme.colorScheme.outline
+      )
     }
   }
 }
 
 @Composable
-private fun WebsiteItemCard(
+internal fun WebsiteItemCard(
   website: SavedWebsite,
   isExpanded: Boolean,
   onCardClick: () -> Unit,
@@ -914,111 +1302,207 @@ private fun WebsiteItemCard(
 ) {
   val context = LocalContext.current
 
-  ElevatedCard(
+  Surface(
+    color = SummerCardBackground,
+    shape = RoundedCornerShape(16.dp),
+    border = BorderStroke(
+      1.dp,
+      if (isExpanded) SummerPrimaryContainer.copy(alpha = 0.45f) else SummerBorderSubtle
+    ),
+    shadowElevation = if (isExpanded) 6.dp else 2.dp,
     modifier = Modifier
       .fillMaxWidth()
-      .clickable(onClick = onCardClick),
-    shape = RoundedCornerShape(16.dp),
-    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+      .clip(RoundedCornerShape(16.dp))
+      .clickable(onClick = onCardClick)
   ) {
-    Column(modifier = Modifier.padding(14.dp)) {
-      // Top Row: Square Left Thumbnail (zero padding) + Title & Small Favicon + Domain (no chevron, no timestamp)
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth()
-      ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+      if (!isExpanded) {
+        // Collapsed state: Compact row matching Stitch collapsed cards
         Box(
           modifier = Modifier
-            .size(56.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
-          contentAlignment = Alignment.Center
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
         ) {
-          Icon(
-            imageVector = Icons.Default.Language,
-            contentDescription = null,
-            modifier = Modifier.size(22.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-          )
           if (website.thumbnailUrl.isNotBlank()) {
-            AsyncImage(
-              model = website.thumbnailUrl,
-              contentDescription = "${website.domain} thumbnail",
-              contentScale = ContentScale.Crop,
-              modifier = Modifier.fillMaxSize()
-            )
-          }
-        }
-
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-          Text(
-            text = website.title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = if (website.isArchived) FontWeight.Normal else FontWeight.SemiBold,
-            maxLines = if (isExpanded) 4 else 2,
-            overflow = TextOverflow.Ellipsis
-          )
-          Spacer(modifier = Modifier.height(4.dp))
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            AsyncImage(
-              model = website.faviconUrl,
-              contentDescription = "${website.domain} icon",
-              contentScale = ContentScale.Fit,
+            Box(
               modifier = Modifier
-                .size(15.dp)
-                .clip(RoundedCornerShape(3.dp))
-            )
-            Spacer(modifier = Modifier.width(5.dp))
+                .width(96.dp)
+                .fillMaxHeight()
+            ) {
+              AsyncImage(
+                model = website.thumbnailUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+              )
+              Box(
+                modifier = Modifier
+                  .fillMaxSize()
+                  .background(
+                    Brush.horizontalGradient(
+                      0f to Color.Transparent,
+                      0.4f to Color.Transparent,
+                      0.95f to SummerCardBackground
+                    )
+                  )
+              )
+            }
+          }
+
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(
+                start = if (website.thumbnailUrl.isNotBlank()) 92.dp else 16.dp,
+                end = 16.dp,
+                top = 12.dp,
+                bottom = 12.dp
+              )
+          ) {
             Text(
-              text = website.domain,
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
-              modifier = Modifier.weight(1f, fill = false)
+              text = website.title.ifBlank { website.domain },
+              style = MaterialTheme.typography.titleMedium.copy(
+                fontFamily = NewsreaderFontFamily,
+                fontWeight = FontWeight.Medium,
+                fontSize = 16.sp,
+                lineHeight = 22.sp
+              ),
+              color = SummerHeadline,
+              maxLines = 2,
+              overflow = TextOverflow.Ellipsis
             )
-            if (website.summary != null) {
-              Spacer(modifier = Modifier.width(6.dp))
-              Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                shape = CircleShape
-              ) {
-                Text(
-                  text = "AI",
-                  style = MaterialTheme.typography.labelSmall,
-                  color = MaterialTheme.colorScheme.onPrimaryContainer,
-                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              if (website.faviconUrl.isNotBlank()) {
+                AsyncImage(
+                  model = website.faviconUrl,
+                  contentDescription = null,
+                  modifier = Modifier
+                    .size(13.dp)
+                    .clip(RoundedCornerShape(2.dp))
                 )
+                Spacer(modifier = Modifier.width(6.dp))
+              } else {
+                Surface(
+                  shape = CircleShape,
+                  color = SummerPrimaryContainer.copy(alpha = 0.2f),
+                  modifier = Modifier.size(14.dp)
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.Language,
+                    contentDescription = null,
+                    tint = SummerPrimaryContainer,
+                    modifier = Modifier.padding(2.dp)
+                  )
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+              }
+              Text(
+                text = website.domain,
+                style = MaterialTheme.typography.bodySmall.copy(
+                  fontFamily = ManropeFontFamily,
+                  fontSize = 12.sp
+                ),
+                color = SummerOnSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+              )
+              if (website.summary != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                  color = SummerPrimaryContainer.copy(alpha = 0.2f),
+                  shape = CircleShape
+                ) {
+                  Text(
+                    text = "AI",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                      fontFamily = ManropeFontFamily,
+                      fontWeight = FontWeight.Bold,
+                      fontSize = 10.sp
+                    ),
+                    color = SummerPrimaryContainer,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                  )
+                }
               }
             }
           }
         }
-      }
+      } else {
+        // Expanded state: Immersive header with gradient thumbnail
+        if (website.thumbnailUrl.isNotBlank()) {
+          Box(
+            modifier = Modifier
+              .fillMaxWidth()
+              .height(130.dp)
+          ) {
+            AsyncImage(
+              model = website.thumbnailUrl,
+              contentDescription = null,
+              contentScale = ContentScale.Crop,
+              modifier = Modifier.fillMaxSize()
+            )
+            Box(
+              modifier = Modifier
+                .fillMaxSize()
+                .background(
+                  Brush.verticalGradient(
+                    0f to Color.Transparent,
+                    0.6f to SummerCardBackground.copy(alpha = 0.7f),
+                    1f to SummerCardBackground
+                  )
+                )
+            )
+          }
+        }
 
-      if (website.isLoadingMetadata) {
-        Spacer(modifier = Modifier.height(8.dp))
-        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-      }
-
-      // Inline Expanded Section: Flattened Markdown AI Summary + Action Buttons
-      AnimatedVisibility(
-        visible = isExpanded,
-        enter = expandVertically() + fadeIn(),
-        exit = shrinkVertically() + fadeOut()
-      ) {
-        Column(modifier = Modifier.padding(top = 12.dp)) {
-          HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
-          Spacer(modifier = Modifier.height(10.dp))
-
-          when {
-            website.isSummarizing -> {
-              SummarySkeletonLoader()
+        Column(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+        ) {
+          Text(
+            text = website.title.ifBlank { website.domain },
+            style = MaterialTheme.typography.headlineSmall.copy(
+              fontFamily = NewsreaderFontFamily,
+              fontWeight = FontWeight.Medium,
+              fontSize = 20.sp,
+              lineHeight = 26.sp
+            ),
+            color = SummerHeadline
+          )
+          Spacer(modifier = Modifier.height(6.dp))
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            if (website.faviconUrl.isNotBlank()) {
+              AsyncImage(
+                model = website.faviconUrl,
+                contentDescription = null,
+                modifier = Modifier
+                  .size(14.dp)
+                  .clip(RoundedCornerShape(3.dp))
+              )
+              Spacer(modifier = Modifier.width(6.dp))
             }
+            Text(
+              text = website.domain,
+              style = MaterialTheme.typography.bodySmall.copy(
+                fontFamily = ManropeFontFamily,
+                fontSize = 12.sp
+              ),
+              color = SummerOnSurfaceVariant
+            )
+          }
+
+          Spacer(modifier = Modifier.height(12.dp))
+          HorizontalDivider(color = SummerBorderSubtle)
+          Spacer(modifier = Modifier.height(12.dp))
+
+          // Summary or action buttons
+          when {
+            website.isSummarizing -> SummarySkeletonLoader()
             website.summaryError != null -> {
               Surface(
-                color = MaterialTheme.colorScheme.errorContainer,
+                color = SummerErrorContainer.copy(alpha = 0.4f),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
               ) {
@@ -1026,7 +1510,7 @@ private fun WebsiteItemCard(
                   Text(
                     text = website.summaryError,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer
+                    color = SummerError
                   )
                   Spacer(modifier = Modifier.height(8.dp))
                   OutlinedButton(onClick = onSummarizeClick) {
@@ -1047,15 +1531,17 @@ private fun WebsiteItemCard(
                   Icon(
                     imageVector = Icons.Default.AutoAwesome,
                     contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.primary
+                    modifier = Modifier.size(15.dp),
+                    tint = SummerPrimaryContainer
                   )
-                  Spacer(modifier = Modifier.width(5.dp))
+                  Spacer(modifier = Modifier.width(6.dp))
                   Text(
                     text = website.summaryProvider ?: "AI Summary",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
+                    style = MaterialTheme.typography.labelSmall.copy(
+                      fontFamily = ManropeFontFamily,
+                      fontWeight = FontWeight.SemiBold
+                    ),
+                    color = SummerPrimaryContainer
                   )
                 }
                 IconButton(
@@ -1066,31 +1552,38 @@ private fun WebsiteItemCard(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Regenerate summary",
                     modifier = Modifier.size(15.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = SummerOnSurfaceVariant
                   )
                 }
               }
               Spacer(modifier = Modifier.height(6.dp))
               MarkdownText(
                 markdown = website.summary,
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium.copy(
+                  fontFamily = ManropeFontFamily,
+                  fontSize = 14.sp,
+                  lineHeight = 22.sp
+                )
               )
             }
             else -> {
               Button(
                 onClick = onSummarizeClick,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                  containerColor = SummerPrimaryContainer,
+                  contentColor = SummerOnPrimaryContainer
+                )
               ) {
                 Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Summarize Website")
+                Text("Summarize Article", style = MaterialTheme.typography.labelMedium)
               }
             }
           }
 
-          Spacer(modifier = Modifier.height(12.dp))
+          Spacer(modifier = Modifier.height(14.dp))
 
-          // Action Buttons Row: Open in Browser, Archive/Read, Share, Delete
           Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1098,22 +1591,25 @@ private fun WebsiteItemCard(
           ) {
             OutlinedButton(
               onClick = onOpenExternal,
-              contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+              contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+              border = BorderStroke(1.dp, SummerBorderSubtle)
             ) {
               Icon(
-                imageVector = Icons.Default.OpenInBrowser,
+                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                 contentDescription = null,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(16.dp),
+                tint = SummerOnSurface
               )
               Spacer(modifier = Modifier.width(6.dp))
-              Text("Open in Browser")
+              Text("Open", color = SummerOnSurface, style = MaterialTheme.typography.labelMedium)
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
               IconButton(onClick = onToggleArchive) {
                 Icon(
                   imageVector = if (website.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
-                  contentDescription = if (website.isArchived) "Unarchive" else "Archive"
+                  contentDescription = if (website.isArchived) "Unarchive" else "Archive",
+                  tint = SummerOnSurfaceVariant
                 )
               }
               IconButton(
@@ -1136,14 +1632,15 @@ private fun WebsiteItemCard(
               ) {
                 Icon(
                   imageVector = Icons.Default.Share,
-                  contentDescription = "Share"
+                  contentDescription = "Share",
+                  tint = SummerOnSurfaceVariant
                 )
               }
               IconButton(onClick = onDelete) {
                 Icon(
                   imageVector = Icons.Default.DeleteOutline,
                   contentDescription = "Delete",
-                  tint = MaterialTheme.colorScheme.error
+                  tint = SummerError
                 )
               }
             }
@@ -1155,125 +1652,227 @@ private fun WebsiteItemCard(
 }
 
 @Composable
-private fun SummarySkeletonLoader() {
-  val transition = rememberInfiniteTransition(label = "summary_skeleton")
-  val pulseAlpha by transition.animateFloat(
-    initialValue = 0.28f,
-    targetValue = 0.72f,
-    animationSpec = infiniteRepeatable(
-      animation = tween(durationMillis = 850),
-      repeatMode = RepeatMode.Reverse
-    ),
-    label = "skeleton_alpha"
-  )
-  val barColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = pulseAlpha * 0.45f)
+internal fun DigestEpisodeCard(
+  digest: DigestEntry,
+  playback: PodcastPlaybackState,
+  onOpenDigest: () -> Unit,
+  onPlayOrGenerate: () -> Unit,
+  onDelete: () -> Unit
+) {
+  val isPlayingThis =
+    playback.isActive && playback.activeDigestId == digest.id && playback.isPlaying
+  val hostsLabel = remember(digest.hostNames, digest.language) {
+    PodcastCastCatalog.formatHostList(digest.hostNames, digest.language)
+  }
 
-  Column(
+  Surface(
+    color = SummerCardBackground,
+    shape = RoundedCornerShape(16.dp),
+    border = BorderStroke(
+      1.dp,
+      if (isPlayingThis) SummerPrimaryContainer.copy(alpha = 0.65f) else SummerPrimaryContainer.copy(alpha = 0.35f)
+    ),
+    shadowElevation = if (isPlayingThis) 8.dp else 3.dp,
     modifier = Modifier
       .fillMaxWidth()
-      .padding(vertical = 4.dp),
-    verticalArrangement = Arrangement.spacedBy(8.dp)
+      .clip(RoundedCornerShape(16.dp))
+      .clickable(onClick = onOpenDigest)
   ) {
-    // Provider label bar
-    Box(
-      modifier = Modifier
-        .width(108.dp)
-        .height(10.dp)
-        .clip(RoundedCornerShape(5.dp))
-        .background(MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha * 0.45f))
-    )
-
-    Spacer(modifier = Modifier.height(2.dp))
-
-    // TL;DR lines
-    Box(
-      modifier = Modifier
-        .fillMaxWidth(0.96f)
-        .height(13.dp)
-        .clip(RoundedCornerShape(6.dp))
-        .background(barColor)
-    )
-    Box(
-      modifier = Modifier
-        .fillMaxWidth(0.76f)
-        .height(13.dp)
-        .clip(RoundedCornerShape(6.dp))
-        .background(barColor)
-    )
-
-    Spacer(modifier = Modifier.height(2.dp))
-
-    // Bullet point skeleton rows
-    listOf(0.91f, 0.84f, 0.68f).forEach { fraction ->
+    Column(modifier = Modifier.padding(16.dp)) {
       Row(
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
         modifier = Modifier.fillMaxWidth()
       ) {
-        Box(
-          modifier = Modifier
-            .size(6.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha * 0.55f))
+        Text(
+          text = digest.episodeBadgeText,
+          style = MaterialTheme.typography.labelSmall.copy(
+            fontFamily = ManropeFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            letterSpacing = 1.sp
+          ),
+          color = SummerPrimaryContainer
         )
-        Spacer(modifier = Modifier.width(8.dp))
-        Box(
-          modifier = Modifier
-            .fillMaxWidth(fraction)
-            .height(12.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(barColor)
+
+        IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+          Icon(
+            imageVector = Icons.Default.DeleteOutline,
+            contentDescription = "Delete Episode",
+            tint = SummerOnSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier.size(16.dp)
+          )
+        }
+      }
+
+      Spacer(modifier = Modifier.height(8.dp))
+
+      Text(
+        text = digest.displayTitle,
+        style = MaterialTheme.typography.headlineSmall.copy(
+          fontFamily = NewsreaderFontFamily,
+          fontWeight = FontWeight.Medium,
+          fontSize = 24.sp,
+          lineHeight = 32.sp
+        ),
+        color = SummerHeadline,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis
+      )
+
+      Spacer(modifier = Modifier.height(10.dp))
+
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Surface(
+          color = SummerSurfaceContainerHigh,
+          shape = RoundedCornerShape(4.dp)
+        ) {
+          Text(
+            text = if (digest.language == PodcastLanguage.SWEDISH) "🇸🇪 Svenska" else "🇬🇧 English",
+            style = MaterialTheme.typography.labelSmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontSize = 11.sp,
+              fontWeight = FontWeight.Medium
+            ),
+            color = SummerOnSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+          )
+        }
+
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+          Icon(
+            imageVector = Icons.Default.Mic,
+            contentDescription = null,
+            tint = SummerOnSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.size(13.dp)
+          )
+          Text(
+            text = hostsLabel,
+            style = MaterialTheme.typography.labelSmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontSize = 11.sp
+            ),
+            color = SummerOnSurfaceVariant
+          )
+        }
+
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+          Icon(
+            imageVector = Icons.Default.AutoStories,
+            contentDescription = null,
+            tint = SummerOnSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.size(13.dp)
+          )
+          Text(
+            text = "${digest.sourceWebsites.size} ${if (digest.sourceWebsites.size == 1) "article" else "articles"}",
+            style = MaterialTheme.typography.labelSmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontSize = 11.sp
+            ),
+            color = SummerOnSurfaceVariant
+          )
+        }
+      }
+
+      Spacer(modifier = Modifier.height(14.dp))
+
+      if (digest.podcastAudioPath != null) {
+        // Waveform Scrubber + Play Button matching Stitch
+        EpisodeWaveformScrubber(
+          positionMs = if (isPlayingThis) playback.positionMs else 0L,
+          durationMs = if (isPlayingThis && playback.durationMs > 0) playback.durationMs else 180000L,
+          isPlaying = isPlayingThis,
+          onPlayOrGenerate = onPlayOrGenerate
         )
+      } else {
+        // Script Ready box
+        Surface(
+          color = SummerSurfaceContainerHigh,
+          shape = RoundedCornerShape(12.dp),
+          border = BorderStroke(1.dp, SummerBorderSubtle),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+          ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+              Text(
+                text = "SCRIPT READY",
+                style = MaterialTheme.typography.labelSmall.copy(
+                  fontFamily = ManropeFontFamily,
+                  fontWeight = FontWeight.Bold,
+                  fontSize = 11.sp,
+                  letterSpacing = 0.5.sp
+                ),
+                color = SummerSecondary
+              )
+              Text(
+                text = digest.podcastScript?.take(70)?.let { "\"$it...\"" } ?: "Dialogue script ready to voice",
+                style = MaterialTheme.typography.bodySmall.copy(
+                  fontFamily = ManropeFontFamily,
+                  fontSize = 12.sp
+                ),
+                color = SummerOnSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+              )
+            }
+
+            Button(
+              onClick = onPlayOrGenerate,
+              colors = ButtonDefaults.buttonColors(
+                containerColor = SummerPrimaryContainer,
+                contentColor = SummerBackground
+              ),
+              contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+              if (digest.isGeneratingPodcast) {
+                CircularProgressIndicator(
+                  modifier = Modifier.size(14.dp),
+                  color = SummerBackground,
+                  strokeWidth = 2.dp
+                )
+              } else {
+                Icon(
+                  imageVector = Icons.Default.AutoAwesome,
+                  contentDescription = null,
+                  tint = SummerBackground,
+                  modifier = Modifier.size(15.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                  "Generate Audio",
+                  style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = ManropeFontFamily,
+                    fontWeight = FontWeight.Bold
+                  ),
+                  color = SummerBackground
+                )
+              }
+            }
+          }
+        }
       }
     }
   }
 }
 
 @Composable
-private fun EmptySavedLinksView(
-  activeFilter: LinkFilter,
-  onAddLinkClick: () -> Unit
-) {
-  Column(
-    modifier = Modifier
-      .fillMaxSize()
-      .padding(32.dp),
-    horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.Center
-  ) {
-    Icon(
-      imageVector = Icons.Default.AutoAwesome,
-      contentDescription = null,
-      modifier = Modifier.size(56.dp),
-      tint = MaterialTheme.colorScheme.primary
-    )
-    Spacer(modifier = Modifier.height(16.dp))
-    Text(
-      text = when (activeFilter) {
-        LinkFilter.UNREAD -> "All caught up!"
-        LinkFilter.ALL -> "No saved websites yet"
-        LinkFilter.ARCHIVED -> "No archived websites"
-      },
-      style = MaterialTheme.typography.headlineSmall,
-      fontWeight = FontWeight.Bold
-    )
-    Spacer(modifier = Modifier.height(8.dp))
-    Text(
-      text = "When browsing Google Feed or any app, tap a link and choose \"Summer\" (or use Share → Summer). You'll get a quick action bar to open the app, open the link, or start a podcast right away.",
-      style = MaterialTheme.typography.bodyMedium,
-      color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-    Spacer(modifier = Modifier.height(20.dp))
-    OutlinedButton(onClick = onAddLinkClick) {
-      Icon(Icons.Default.Add, contentDescription = null)
-      Spacer(Modifier.width(8.dp))
-      Text("Add a Link Manually")
-    }
-  }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun CatchMeUpDigestSheetContent(
+internal fun CatchMeUpDigestSheetContent(
   digest: DigestEntry,
   settings: AppSettings,
   playback: PodcastPlaybackState,
@@ -1282,6 +1881,7 @@ private fun CatchMeUpDigestSheetContent(
   onMarkAllArchived: () -> Unit,
   onDismiss: () -> Unit
 ) {
+  val context = LocalContext.current
   val dateStr = remember(digest.createdAt) {
     DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
       .format(Date(digest.createdAt))
@@ -1312,86 +1912,119 @@ private fun CatchMeUpDigestSheetContent(
       horizontalArrangement = Arrangement.SpaceBetween,
       modifier = Modifier.fillMaxWidth()
     ) {
-      Column(modifier = Modifier.weight(1f)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          Text(
-            text = "☀️ Catch Me Up Podcast",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
-          )
-          if (digest.language == PodcastLanguage.SWEDISH) {
-            Spacer(modifier = Modifier.width(8.dp))
-            Surface(
-              color = MaterialTheme.colorScheme.tertiaryContainer,
-              shape = CircleShape
-            ) {
-              Text(
-                text = "🇸🇪 SV",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onTertiaryContainer,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-              )
+      IconButton(onClick = onDismiss) {
+        Icon(
+          imageVector = Icons.Default.KeyboardArrowDown,
+          contentDescription = "Dismiss",
+          tint = SummerOnSurfaceVariant,
+          modifier = Modifier.size(28.dp)
+        )
+      }
+
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+          text = digest.episodeBadgeText,
+          style = MaterialTheme.typography.labelSmall,
+          color = SummerPrimaryContainer,
+          fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+          text = "•",
+          style = MaterialTheme.typography.labelSmall,
+          color = MaterialTheme.colorScheme.outline
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+          text = dateStr,
+          style = MaterialTheme.typography.labelSmall,
+          color = SummerOnSurfaceVariant
+        )
+      }
+
+      IconButton(
+        onClick = {
+          val shareText = buildString {
+            appendLine("☀️ Summer Podcast Digest — $dateStr")
+            appendLine("Hosted by $hostsLabel (${if (digest.language == PodcastLanguage.SWEDISH) "Swedish" else "English"})")
+            appendLine()
+            appendLine("Sources covered (${digest.sourceWebsites.size}):")
+            digest.sourceWebsites.forEachIndexed { i, s ->
+              appendLine("${i + 1}. ${s.title} (${s.url})")
+            }
+            if (!digest.podcastScript.isNullOrBlank()) {
+              appendLine()
+              appendLine("Script preview:")
+              appendLine(digest.podcastScript.take(300) + "...")
             }
           }
+          val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, shareText)
+          }
+          context.startActivity(Intent.createChooser(sendIntent, "Share Podcast Episode"))
         }
-        Text(
-          text = "${digest.sourceWebsites.size} website(s) • $dateStr",
-          style = MaterialTheme.typography.labelMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant
+      ) {
+        Icon(
+          imageVector = Icons.Default.Share,
+          contentDescription = "Share",
+          tint = SummerOnSurfaceVariant,
+          modifier = Modifier.size(20.dp)
         )
       }
     }
 
-    Spacer(modifier = Modifier.height(14.dp))
+    Spacer(modifier = Modifier.height(12.dp))
 
-    // Podcast Episode Player Card
-    Surface(
-      color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
-      shape = RoundedCornerShape(16.dp),
+    Text(
+      text = if (digest.sourceWebsites.isNotEmpty()) {
+        digest.sourceWebsites.first().title.ifBlank { "Daily AI Podcast Briefing" }
+      } else "Daily AI Podcast Briefing",
+      style = MaterialTheme.typography.headlineLarge,
+      color = SummerOnSurface
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    Row(
+      verticalAlignment = Alignment.CenterVertically,
       modifier = Modifier.fillMaxWidth()
     ) {
-      Column(modifier = Modifier.padding(16.dp)) {
-        Row(
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.SpaceBetween,
-          modifier = Modifier.fillMaxWidth()
-        ) {
-          Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-            Icon(
-              imageVector = Icons.Default.Podcasts,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.primary,
-              modifier = Modifier.size(22.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Column {
-              Text(
-                text = "Hosted by $hostsLabel",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-              )
-              Text(
-                text = digest.podcastVoiceProvider
-                  ?: "Conversational episode weaving all ${digest.sourceWebsites.size} saved articles",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-              )
-            }
-          }
+      Text(
+        text = if (digest.language == PodcastLanguage.SWEDISH) "🇸🇪 Svenska" else "🇬🇧 English",
+        style = MaterialTheme.typography.labelMedium,
+        color = SummerOnSurfaceVariant
+      )
+      Spacer(modifier = Modifier.width(8.dp))
+      Text(text = "•", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+      Spacer(modifier = Modifier.width(8.dp))
+      Text(
+        text = "🎙️ $hostsLabel",
+        style = MaterialTheme.typography.labelMedium,
+        color = SummerOnSurfaceVariant
+      )
+      Spacer(modifier = Modifier.width(8.dp))
+      Text(text = "•", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+      Spacer(modifier = Modifier.width(8.dp))
+      Text(
+        text = "📰 ${digest.sourceWebsites.size} sources",
+        style = MaterialTheme.typography.labelMedium,
+        color = SummerOnSurfaceVariant
+      )
+    }
 
-          if (digest.podcastAudioPath != null && !digest.isGeneratingPodcast) {
-            IconButton(onClick = { onPlayOrGeneratePodcast(true) }) {
-              Icon(
-                imageVector = Icons.Default.Refresh,
-                contentDescription = "Regenerate podcast episode"
-              )
-            }
-          }
-        }
+    Spacer(modifier = Modifier.height(18.dp))
 
-        Spacer(modifier = Modifier.height(12.dp))
-
+    Surface(
+      color = SummerSurfaceContainer,
+      shape = RoundedCornerShape(18.dp),
+      border = BorderStroke(1.dp, SummerBorderSubtle),
+      modifier = Modifier.fillMaxWidth()
+    ) {
+      Column(
+        modifier = Modifier.padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+      ) {
         when {
           digest.isGeneratingPodcast -> {
             Row(
@@ -1400,6 +2033,7 @@ private fun CatchMeUpDigestSheetContent(
             ) {
               CircularProgressIndicator(
                 modifier = Modifier.size(20.dp),
+                color = SummerPrimaryContainer,
                 strokeWidth = 2.dp
               )
               Spacer(modifier = Modifier.width(12.dp))
@@ -1407,12 +2041,13 @@ private fun CatchMeUpDigestSheetContent(
                 Text(
                   text = digest.podcastStatusText ?: "Scripting & synthesizing podcast...",
                   style = MaterialTheme.typography.bodySmall,
+                  color = SummerOnSurface,
                   fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                  text = "Silent in background — you'll get a notification with a Play button once ready",
+                  text = "Generating audio dialogue in the background...",
                   style = MaterialTheme.typography.labelSmall,
-                  color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+                  color = SummerOnSurfaceVariant
                 )
               }
             }
@@ -1421,48 +2056,108 @@ private fun CatchMeUpDigestSheetContent(
             Text(
               text = digest.podcastError,
               style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.error
+              color = SummerError
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = { onPlayOrGeneratePodcast(true) }) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Button(
+              onClick = { onPlayOrGeneratePodcast(true) },
+              colors = ButtonDefaults.buttonColors(
+                containerColor = SummerPrimaryContainer,
+                contentColor = SummerOnPrimaryContainer
+              )
+            ) {
               Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
               Spacer(Modifier.width(6.dp))
               Text("Retry Podcast")
             }
           }
           digest.podcastAudioPath != null -> {
-            Button(
-              onClick = { onPlayOrGeneratePodcast(false) },
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.Center,
               modifier = Modifier.fillMaxWidth()
             ) {
-              Icon(
-                imageVector = if (isThisDigestPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = null
-              )
-              Spacer(Modifier.width(8.dp))
-              Text(if (isThisDigestPlaying) "Pause Podcast Episode" else "Play Podcast Episode")
+              IconButton(
+                onClick = { /* Rewind 15s */ },
+                modifier = Modifier.size(48.dp)
+              ) {
+                Icon(
+                  imageVector = Icons.Default.FastRewind,
+                  contentDescription = "Rewind",
+                  tint = SummerOnSurface,
+                  modifier = Modifier.size(26.dp)
+                )
+              }
+
+              Spacer(modifier = Modifier.width(20.dp))
+
+              IconButton(
+                onClick = { onPlayOrGeneratePodcast(false) },
+                modifier = Modifier
+                  .size(64.dp)
+                  .clip(CircleShape)
+                  .background(SummerPrimaryContainer)
+              ) {
+                Icon(
+                  imageVector = if (isThisDigestPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                  contentDescription = if (isThisDigestPlaying) "Pause" else "Play",
+                  tint = SummerOnPrimaryContainer,
+                  modifier = Modifier.size(36.dp)
+                )
+              }
+
+              Spacer(modifier = Modifier.width(20.dp))
+
+              IconButton(
+                onClick = { /* Forward 30s */ },
+                modifier = Modifier.size(48.dp)
+              ) {
+                Icon(
+                  imageVector = Icons.Default.FastForward,
+                  contentDescription = "Fast Forward",
+                  tint = SummerOnSurface,
+                  modifier = Modifier.size(26.dp)
+                )
+              }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            val posText = if (isThisDigestPlaying) formatDurationMs(playback.positionMs) else "00:00"
+            val durText = if (isThisDigestPlaying && playback.durationMs > 0) formatDurationMs(playback.durationMs) else "--:--"
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+              Text(text = posText, style = MaterialTheme.typography.labelSmall, color = SummerPrimaryContainer)
+              Text(text = durText, style = MaterialTheme.typography.labelSmall, color = SummerOnSurfaceVariant)
             }
           }
           else -> {
             Button(
               onClick = { onPlayOrGeneratePodcast(false) },
+              colors = ButtonDefaults.buttonColors(
+                containerColor = SummerPrimaryContainer,
+                contentColor = SummerOnPrimaryContainer
+              ),
               modifier = Modifier.fillMaxWidth()
             ) {
               Icon(Icons.Default.Headphones, contentDescription = null, modifier = Modifier.size(18.dp))
               Spacer(Modifier.width(8.dp))
-              Text("Generate & Play Podcast")
+              Text("Generate & Play Podcast Audio")
             }
           }
         }
       }
     }
 
-    Spacer(modifier = Modifier.height(18.dp))
+    Spacer(modifier = Modifier.height(20.dp))
 
     Text(
-      text = "Sources in this Episode (${digest.sourceWebsites.size})",
-      style = MaterialTheme.typography.titleSmall,
-      fontWeight = FontWeight.SemiBold
+      text = "SOURCES COVERED IN THIS EPISODE (${digest.sourceWebsites.size})",
+      style = MaterialTheme.typography.labelSmall,
+      color = SummerOnSurfaceVariant,
+      letterSpacing = 1.sp
     )
     Spacer(modifier = Modifier.height(8.dp))
 
@@ -1471,16 +2166,18 @@ private fun CatchMeUpDigestSheetContent(
       modifier = Modifier.fillMaxWidth()
     ) {
       digest.sourceWebsites.forEachIndexed { index, source ->
-        OutlinedCard(
+        Surface(
+          color = SummerSurfaceContainer,
+          shape = RoundedCornerShape(12.dp),
+          border = BorderStroke(1.dp, SummerBorderSubtle),
           modifier = Modifier
             .fillMaxWidth()
-            .clickable { onOpenSourceUrl(source.url) },
-          shape = RoundedCornerShape(12.dp)
+            .clickable { onOpenSourceUrl(source.url) }
         ) {
           Row(
             modifier = Modifier
               .fillMaxWidth()
-              .padding(horizontal = 12.dp, vertical = 10.dp),
+              .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
           ) {
             AsyncImage(
@@ -1495,46 +2192,64 @@ private fun CatchMeUpDigestSheetContent(
               Text(
                 text = source.title.ifBlank { source.domain },
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
+                color = SummerOnSurface,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
               )
               Text(
                 text = "[${index + 1}] ${source.domain}",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = SummerOnSurfaceVariant
               )
             }
             Icon(
-              imageVector = Icons.Default.OpenInBrowser,
+              imageVector = Icons.AutoMirrored.Filled.OpenInNew,
               contentDescription = "Open source link",
               modifier = Modifier.size(16.dp),
-              tint = MaterialTheme.colorScheme.onSurfaceVariant
+              tint = SummerOnSurfaceVariant
             )
           }
         }
       }
     }
 
-    Spacer(modifier = Modifier.height(20.dp))
+    Spacer(modifier = Modifier.height(22.dp))
 
     Row(
       modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.spacedBy(12.dp)
+      horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
       OutlinedButton(
         onClick = onDismiss,
+        border = BorderStroke(1.dp, SummerBorderSubtle),
         modifier = Modifier.weight(1f)
       ) {
-        Text("Close")
+        Text("Close", color = SummerOnSurface)
       }
+
       Button(
         onClick = onMarkAllArchived,
+        colors = ButtonDefaults.buttonColors(
+          containerColor = SummerPrimaryContainer,
+          contentColor = SummerOnPrimaryContainer
+        ),
         modifier = Modifier.weight(1.4f)
       ) {
         Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(6.dp))
         Text("Archive Sources")
+      }
+    }
+
+    if (digest.podcastAudioPath != null && !digest.isGeneratingPodcast) {
+      Spacer(modifier = Modifier.height(8.dp))
+      TextButton(
+        onClick = { onPlayOrGeneratePodcast(true) },
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp), tint = SummerPrimaryContainer)
+        Spacer(Modifier.width(6.dp))
+        Text("Regenerate Audio", color = SummerPrimaryContainer)
       }
     }
 
@@ -1542,192 +2257,162 @@ private fun CatchMeUpDigestSheetContent(
   }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun DigestsHistoryTab(
-  digests: List<DigestEntry>,
-  playback: PodcastPlaybackState,
-  onOpenDigest: (DigestEntry) -> Unit,
-  onPlayOrGeneratePodcast: (DigestEntry) -> Unit,
-  onDeleteDigest: (String) -> Unit,
-  onGenerateNew: () -> Unit
-) {
-  if (digests.isEmpty()) {
-    Column(
-      modifier = Modifier
-        .fillMaxSize()
-        .padding(32.dp),
-      horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement = Arrangement.Center
-    ) {
+private fun SummarySkeletonLoader() {
+  val transition = rememberInfiniteTransition(label = "summary_skeleton")
+  val pulseAlpha by transition.animateFloat(
+    initialValue = 0.28f,
+    targetValue = 0.72f,
+    animationSpec = infiniteRepeatable(
+      animation = tween(durationMillis = 850),
+      repeatMode = RepeatMode.Reverse
+    ),
+    label = "skeleton_alpha"
+  )
+  val barColor = SummerOnSurfaceVariant.copy(alpha = pulseAlpha * 0.4f)
+
+  Column(
+    modifier = Modifier
+      .fillMaxWidth()
+      .padding(vertical = 4.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp)
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
       Icon(
-        imageVector = Icons.Default.Podcasts,
+        imageVector = Icons.Default.Refresh,
         contentDescription = null,
-        modifier = Modifier.size(56.dp),
-        tint = MaterialTheme.colorScheme.primary
+        modifier = Modifier.size(14.dp),
+        tint = SummerSecondary
       )
-      Spacer(modifier = Modifier.height(16.dp))
+      Spacer(modifier = Modifier.width(6.dp))
       Text(
-        text = "No podcast digests yet",
-        style = MaterialTheme.typography.headlineSmall,
-        fontWeight = FontWeight.Bold
+        text = "Generating AI digest...",
+        style = MaterialTheme.typography.labelSmall,
+        color = SummerSecondary,
+        fontWeight = FontWeight.Medium
       )
-      Spacer(modifier = Modifier.height(8.dp))
-      Text(
-        text = "Tap \"Catch Me Up\" on the Saved Links tab (or enable Auto-Podcast After Browsing Session in Settings) to generate a multi-host podcast episode across your saved articles.",
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-      )
-      Spacer(modifier = Modifier.height(20.dp))
-      Button(onClick = onGenerateNew) {
-        Icon(Icons.Default.Podcasts, contentDescription = null)
-        Spacer(Modifier.width(8.dp))
-        Text("Generate Podcast Episode Now")
-      }
     }
-  } else {
-    LazyColumn(
-      modifier = Modifier.fillMaxSize(),
-      contentPadding = PaddingValues(16.dp),
-      verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-      items(digests, key = { it.id }) { digest ->
-        val dateStr = remember(digest.createdAt) {
-          DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-            .format(Date(digest.createdAt))
-        }
-        val isPlayingThis =
-          playback.isActive && playback.activeDigestId == digest.id && playback.isPlaying
-        val hostsLabel = remember(digest.hostNames, digest.language) {
-          PodcastCastCatalog.formatHostList(digest.hostNames, digest.language)
-        }
 
-        ElevatedCard(
+    Spacer(modifier = Modifier.height(2.dp))
+
+    Box(
+      modifier = Modifier
+        .fillMaxWidth(0.96f)
+        .height(13.dp)
+        .clip(RoundedCornerShape(6.dp))
+        .background(barColor)
+    )
+    Box(
+      modifier = Modifier
+        .fillMaxWidth(0.76f)
+        .height(13.dp)
+        .clip(RoundedCornerShape(6.dp))
+        .background(barColor)
+    )
+
+    Spacer(modifier = Modifier.height(2.dp))
+
+    listOf(0.91f, 0.84f, 0.68f).forEach { fraction ->
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Box(
           modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onOpenDigest(digest) },
-          shape = RoundedCornerShape(16.dp)
-        ) {
-          Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.SpaceBetween,
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                  Text(
-                    text = dateStr,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                  )
-                  if (digest.language == PodcastLanguage.SWEDISH) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Surface(
-                      color = MaterialTheme.colorScheme.tertiaryContainer,
-                      shape = CircleShape
-                    ) {
-                      Text(
-                        text = "SV",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                      )
-                    }
-                  }
-                }
-                Text(
-                  text = buildString {
-                    append("🎙️ $hostsLabel • ${digest.sourceWebsites.size} link(s)")
-                    when {
-                      digest.isGeneratingPodcast -> append(" • Generating...")
-                      digest.podcastAudioPath != null -> append(" • Cached Offline")
-                    }
-                  },
-                  style = MaterialTheme.typography.labelMedium,
-                  color = MaterialTheme.colorScheme.primary
-                )
-              }
-              Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { onPlayOrGeneratePodcast(digest) }) {
-                  if (digest.isGeneratingPodcast) {
-                    CircularProgressIndicator(
-                      modifier = Modifier.size(18.dp),
-                      strokeWidth = 2.dp
-                    )
-                  } else {
-                    Icon(
-                      imageVector = when {
-                        isPlayingThis -> Icons.Default.Pause
-                        digest.podcastAudioPath != null -> Icons.Default.PlayArrow
-                        else -> Icons.Default.Headphones
-                      },
-                      contentDescription = "Play or generate podcast",
-                      tint = MaterialTheme.colorScheme.primary
-                    )
-                  }
-                }
-                IconButton(onClick = { onDeleteDigest(digest.id) }) {
-                  Icon(
-                    imageVector = Icons.Default.DeleteOutline,
-                    contentDescription = "Delete digest"
-                  )
-                }
-              }
-            }
-
-            if (digest.sourceWebsites.isNotEmpty()) {
-              Spacer(modifier = Modifier.height(8.dp))
-              FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-              ) {
-                digest.sourceWebsites.take(5).forEach { src ->
-                  AssistChip(
-                    onClick = { onOpenDigest(digest) },
-                    leadingIcon = {
-                      AsyncImage(
-                        model = src.faviconUrl,
-                        contentDescription = null,
-                        modifier = Modifier
-                          .size(14.dp)
-                          .clip(RoundedCornerShape(3.dp))
-                      )
-                    },
-                    label = {
-                      Text(
-                        text = src.domain,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1
-                      )
-                    }
-                  )
-                }
-                if (digest.sourceWebsites.size > 5) {
-                  AssistChip(
-                    onClick = { onOpenDigest(digest) },
-                    label = {
-                      Text(
-                        text = "+${digest.sourceWebsites.size - 5} more",
-                        style = MaterialTheme.typography.labelSmall
-                      )
-                    }
-                  )
-                }
-              }
-            }
-          }
-        }
+            .size(6.dp)
+            .clip(CircleShape)
+            .background(SummerPrimaryContainer.copy(alpha = pulseAlpha * 0.7f))
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Box(
+          modifier = Modifier
+            .fillMaxWidth(fraction)
+            .height(12.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(barColor)
+        )
       }
     }
   }
 }
 
 @Composable
+private fun EmptyFeedView(
+  feedMode: FeedMode,
+  onAddLinkClick: () -> Unit,
+  onGeneratePodcast: () -> Unit
+) {
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .padding(32.dp),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.Center
+  ) {
+    Image(
+      painter = painterResource(R.drawable.ic_summer_sunrise),
+      contentDescription = null,
+      modifier = Modifier.size(64.dp)
+    )
+    Spacer(modifier = Modifier.height(18.dp))
+    Text(
+      text = when (feedMode) {
+        FeedMode.ALL -> "Your feed is clear"
+        FeedMode.LINKS -> "No saved links yet"
+        FeedMode.EPISODES -> "No podcast digests yet"
+      },
+      style = MaterialTheme.typography.headlineSmall,
+      color = SummerOnSurface
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Text(
+      text = when (feedMode) {
+        FeedMode.EPISODES -> "Save links to your reading list and tap \"Catch Me Up\" to produce an intelligent AI podcast briefing."
+        else -> "Share articles to Summer from your browser or tap Add URL to curate your personal reading list."
+      },
+      style = MaterialTheme.typography.bodyMedium,
+      color = SummerOnSurfaceVariant,
+      textAlign = TextAlign.Center
+    )
+    Spacer(modifier = Modifier.height(20.dp))
+    if (feedMode == FeedMode.EPISODES) {
+      Button(
+        onClick = onGeneratePodcast,
+        colors = ButtonDefaults.buttonColors(
+          containerColor = SummerPrimaryContainer,
+          contentColor = SummerOnPrimaryContainer
+        )
+      ) {
+        Icon(Icons.Default.Podcasts, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Generate Podcast Episode")
+      }
+    } else {
+      OutlinedButton(
+        onClick = onAddLinkClick,
+        border = BorderStroke(1.dp, SummerBorderSubtle)
+      ) {
+        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp), tint = SummerOnSurface)
+        Spacer(Modifier.width(8.dp))
+        Text("Add a Link Manually", color = SummerOnSurface)
+      }
+    }
+  }
+}
+
+private fun formatDurationMs(ms: Long): String {
+  if (ms <= 0L) return "00:00"
+  val totalSeconds = ms / 1000L
+  val minutes = totalSeconds / 60L
+  val seconds = totalSeconds % 60L
+  return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+}
+
+@Composable
 private fun SettingsTab(
   settings: AppSettings,
   verification: VerificationUiState,
+  bottomPadding: androidx.compose.ui.unit.Dp = 16.dp,
   onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit,
   onVerifyGeminiTts: () -> Unit,
   onVerifyTextBackend: () -> Unit
@@ -1745,7 +2430,7 @@ private fun SettingsTab(
     modifier = Modifier
       .fillMaxSize()
       .verticalScroll(rememberScrollState())
-      .padding(16.dp),
+      .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = bottomPadding),
     verticalArrangement = Arrangement.spacedBy(16.dp)
   ) {
     // Summarization & Session Auto-Podcast Behavior Card

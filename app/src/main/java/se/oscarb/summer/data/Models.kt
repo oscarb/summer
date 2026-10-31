@@ -2,6 +2,7 @@ package se.oscarb.summer.data
 
 import kotlinx.serialization.Serializable
 import kotlin.random.Random
+import java.util.Locale
 
 @Serializable
 enum class AiBackend(val displayName: String, val subtitle: String) {
@@ -391,6 +392,8 @@ data class SavedWebsite(
 data class DigestEntry(
   val id: String,
   val createdAt: Long,
+  val episodeNumber: Int = 1,
+  val title: String = "",
   val summaryMarkdown: String = "",
   val providerName: String,
   val sourceWebsites: List<DigestSourceWebsite>,
@@ -402,7 +405,15 @@ data class DigestEntry(
   val isGeneratingPodcast: Boolean = false,
   val podcastStatusText: String? = null,
   val podcastError: String? = null
-)
+) {
+  val displayTitle: String
+    get() = title.ifBlank {
+      sourceWebsites.firstOrNull()?.title?.ifBlank { "Daily Catch-Up Briefing" } ?: "Daily Catch-Up Briefing"
+    }
+
+  val episodeBadgeText: String
+    get() = if (episodeNumber > 0) String.format(Locale.ROOT, "EPISODE %02d", episodeNumber) else "EPISODE BRIEFING"
+}
 
 @Serializable
 data class DigestSourceWebsite(

@@ -113,16 +113,24 @@ class SummerRepository private constructor(private val appContext: Context) {
     runCatching {
       if (digestsFile.exists()) {
         val loaded = json.decodeFromString<List<DigestEntry>>(digestsFile.readText())
-        _digests.value = loaded
-          .map {
-            val validAudio = it.podcastAudioPath?.takeIf { path -> File(path).exists() }
-            it.copy(
-              isGeneratingPodcast = false,
-              podcastStatusText = null,
-              podcastAudioPath = validAudio
-            )
+        val withEpisodeNumbers = loaded.sortedBy { it.createdAt }.mapIndexed { index, entry ->
+          val validAudio = entry.podcastAudioPath?.takeIf { path -> File(path).exists() }
+          val assignedNumber = if (entry.episodeNumber <= 0 || (entry.episodeNumber == 1 && index > 0 && loaded.size > 1)) {
+            index + 1
+          } else {
+            entry.episodeNumber
           }
-          .sortedByDescending { it.createdAt }
+          entry.copy(
+            episodeNumber = assignedNumber,
+            title = entry.title.ifBlank {
+              entry.sourceWebsites.firstOrNull()?.title?.ifBlank { "Daily Catch-Up Briefing" } ?: "Daily Catch-Up Briefing"
+            },
+            isGeneratingPodcast = false,
+            podcastStatusText = null,
+            podcastAudioPath = validAudio
+          )
+        }
+        _digests.value = withEpisodeNumbers.sortedByDescending { it.createdAt }
       }
     }
   }
@@ -218,7 +226,7 @@ class SummerRepository private constructor(private val appContext: Context) {
         val hostsLabel = PodcastCastCatalog.formatHostList(digest.hostNames, digest.language)
         playbackController.playEpisode(
           audioFile = audioFile,
-          title = "Catch Me Up (${digest.sourceWebsites.size} articles)",
+          title = digest.displayTitle,
           subtitle = "$hostsLabel • ${digest.podcastVoiceProvider ?: "Podcast"}",
           digestId = digest.id
         )
@@ -503,10 +511,14 @@ class SummerRepository private constructor(private val appContext: Context) {
       val episodeCast = PodcastCastCatalog.selectEpisodeCast(currentSettings)
       val hostNames = episodeCast.map { it.name }
       val digestId = UUID.randomUUID().toString()
+      val nextEpisodeNumber = (_digests.value.maxOfOrNull { it.episodeNumber } ?: 0) + 1
+      val episodeTitle = targetWebsites.firstOrNull()?.title?.ifBlank { "Daily Catch-Up Briefing" } ?: "Daily Catch-Up Briefing"
 
       val digest = DigestEntry(
         id = digestId,
         createdAt = System.currentTimeMillis(),
+        episodeNumber = nextEpisodeNumber,
+        title = episodeTitle,
         summaryMarkdown = "",
         providerName = currentSettings.selectedBackend.displayName,
         hostNames = hostNames,
@@ -581,7 +593,7 @@ class SummerRepository private constructor(private val appContext: Context) {
           )
           playbackController.playEpisode(
             audioFile = existingFile,
-            title = "Catch Me Up (${digest.sourceWebsites.size} articles)",
+            title = digest.displayTitle,
             subtitle = "$hostsLabel • ${digest.podcastVoiceProvider ?: "Podcast"}",
             digestId = digest.id
           )
@@ -600,7 +612,7 @@ class SummerRepository private constructor(private val appContext: Context) {
       val hostsDisplay = PodcastCastCatalog.formatHostList(hostNames, episodeLanguage)
 
       val jobKey = "digest:$digestId"
-      val episodeTitle = "Catch Me Up (${digest.sourceWebsites.size} articles)"
+      val episodeTitle = digest.displayTitle
       updateDigestPodcastStatus(
         digestId = digestId,
         isGenerating = true,

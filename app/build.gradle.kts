@@ -11,7 +11,7 @@ if (file("google-services.json").exists()) {
 
 android {
     namespace = "se.oscarb.summer"
-    compileSdk = 36
+    compileSdk = 37
     defaultConfig {
         applicationId = "se.oscarb.summer"
         minSdk = 26

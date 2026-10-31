@@ -1,0 +1,64 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="28dp"
+    android:height="28dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+
+    <!-- Circular Badge Background -->
+    <path
+        android:fillColor="#131316"
+        android:strokeColor="#2A2A30"
+        android:strokeWidth="6"
+        android:pathData="M 256,20 A 236,236 0 1,0 256,492 A 236,236 0 1,0 256,20 Z" />
+
+    <!-- Rising Sun Semi-circle -->
+    <path
+        android:fillColor="#F2C078"
+        android:pathData="M 148,246 A 108,108 0 0,1 364,246 Z" />
+
+    <!-- Inner Core Highlight of the Sun -->
+    <path
+        android:fillColor="#FFF2D6"
+        android:fillAlpha="0.65"
+        android:pathData="M 196,246 A 60,60 0 0,1 316,246 Z" />
+
+    <!-- Horizon Line separation -->
+    <path
+        android:fillColor="#131316"
+        android:pathData="M 79.5,254 L 432.5,254 A 3.5,3.5 0 0,1 436,257.5 A 3.5,3.5 0 0,1 432.5,261 L 79.5,261 A 3.5,3.5 0 0,1 76,257.5 A 3.5,3.5 0 0,1 79.5,254 Z" />
+
+    <!-- Geometric Water Reflection Ripples -->
+    <!-- Ripple 1 -->
+    <path
+        android:fillColor="#F2C078"
+        android:pathData="M 142,267 L 370,267 A 6,6 0 0,1 376,273 A 6,6 0 0,1 370,279 L 142,279 A 6,6 0 0,1 136,273 A 6,6 0 0,1 142,267 Z" />
+
+    <!-- Ripple 2 -->
+    <path
+        android:fillColor="#E5A654"
+        android:pathData="M 169.5,289 L 342.5,289 A 5.5,5.5 0 0,1 348,294.5 A 5.5,5.5 0 0,1 342.5,300 L 169.5,300 A 5.5,5.5 0 0,1 164,294.5 A 5.5,5.5 0 0,1 169.5,289 Z" />
+
+    <!-- Ripple 3 -->
+    <path
+        android:fillColor="#D98A3C"
+        android:fillAlpha="0.9"
+        android:pathData="M 193,310 L 319,310 A 5,5 0 0,1 324,315 A 5,5 0 0,1 319,320 L 193,320 A 5,5 0 0,1 188,315 A 5,5 0 0,1 193,310 Z" />
+
+    <!-- Ripple 4 -->
+    <path
+        android:fillColor="#C6762B"
+        android:fillAlpha="0.8"
+        android:pathData="M 214.5,330 L 297.5,330 A 4.5,4.5 0 0,1 302,334.5 A 4.5,4.5 0 0,1 297.5,339 L 214.5,339 A 4.5,4.5 0 0,1 210,334.5 A 4.5,4.5 0 0,1 214.5,330 Z" />
+
+    <!-- Ripple 5 -->
+    <path
+        android:fillColor="#B36522"
+        android:fillAlpha="0.7"
+        android:pathData="M 232,348 L 280,348 A 4,4 0 0,1 284,352 A 4,4 0 0,1 280,356 L 232,356 A 4,4 0 0,1 228,352 A 4,4 0 0,1 232,348 Z" />
+
+    <!-- Ripple 6 -->
+    <path
+        android:fillColor="#995217"
+        android:fillAlpha="0.55"
+        android:pathData="M 247,364 L 265,364 A 3,3 0 0,1 268,367 A 3,3 0 0,1 265,370 L 247,370 A 3,3 0 0,1 244,367 A 3,3 0 0,1 247,364 Z" />
+</vector>
