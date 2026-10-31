@@ -1302,9 +1302,12 @@ internal fun WebsiteItemCard(
 ) {
   val context = LocalContext.current
 
+  val cardShape = RoundedCornerShape(16.dp)
+
   Surface(
+    onClick = onCardClick,
     color = SummerCardBackground,
-    shape = RoundedCornerShape(16.dp),
+    shape = cardShape,
     border = BorderStroke(
       1.dp,
       if (isExpanded) SummerPrimaryContainer.copy(alpha = 0.45f) else SummerBorderSubtle
@@ -1312,8 +1315,7 @@ internal fun WebsiteItemCard(
     shadowElevation = if (isExpanded) 6.dp else 2.dp,
     modifier = Modifier
       .fillMaxWidth()
-      .clip(RoundedCornerShape(16.dp))
-      .clickable(onClick = onCardClick)
+      .clip(cardShape)
   ) {
     Column(modifier = Modifier.fillMaxWidth()) {
       if (!isExpanded) {
@@ -1522,6 +1524,18 @@ internal fun WebsiteItemCard(
               }
             }
             website.summary != null -> {
+              val cleanSummary = remember(website.summary) {
+                stripTlDr(website.summary)
+              }
+              MarkdownText(
+                markdown = cleanSummary,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                  fontFamily = ManropeFontFamily,
+                  fontSize = 14.sp,
+                  lineHeight = 22.sp
+                )
+              )
+              Spacer(modifier = Modifier.height(10.dp))
               Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1556,15 +1570,6 @@ internal fun WebsiteItemCard(
                   )
                 }
               }
-              Spacer(modifier = Modifier.height(6.dp))
-              MarkdownText(
-                markdown = website.summary,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                  fontFamily = ManropeFontFamily,
-                  fontSize = 14.sp,
-                  lineHeight = 22.sp
-                )
-              )
             }
             else -> {
               Button(
@@ -2494,55 +2499,6 @@ private fun SettingsTab(
               onUpdateSettings { it.copy(autoPodcastAfterQuietWindow = enabled) }
             }
           )
-        }
-
-        AnimatedVisibility(visible = settings.autoPodcastAfterQuietWindow) {
-          Column(modifier = Modifier.padding(top = 12.dp)) {
-            var draftQuietMinutes by remember(settings.autoPodcastQuietMinutes) {
-              mutableFloatStateOf(settings.autoPodcastQuietMinutes.coerceIn(1, 10).toFloat())
-            }
-            var draftMinLinks by remember(settings.autoPodcastMinLinks) {
-              mutableFloatStateOf(settings.autoPodcastMinLinks.coerceIn(2, 10).toFloat())
-            }
-
-            Text(
-              text = "Start podcast ${draftQuietMinutes.roundToInt()} min after last saved link",
-              style = MaterialTheme.typography.bodySmall,
-              fontWeight = FontWeight.SemiBold,
-              color = MaterialTheme.colorScheme.primary
-            )
-            Slider(
-              value = draftQuietMinutes,
-              onValueChange = { draftQuietMinutes = it },
-              onValueChangeFinished = {
-                onUpdateSettings {
-                  it.copy(autoPodcastQuietMinutes = draftQuietMinutes.roundToInt().coerceIn(1, 10))
-                }
-              },
-              valueRange = 1f..10f,
-              steps = 8
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-              text = "Minimum links in session burst: ${draftMinLinks.roundToInt()} links",
-              style = MaterialTheme.typography.bodySmall,
-              fontWeight = FontWeight.SemiBold,
-              color = MaterialTheme.colorScheme.primary
-            )
-            Slider(
-              value = draftMinLinks,
-              onValueChange = { draftMinLinks = it },
-              onValueChangeFinished = {
-                onUpdateSettings {
-                  it.copy(autoPodcastMinLinks = draftMinLinks.roundToInt().coerceIn(2, 10))
-                }
-              },
-              valueRange = 2f..10f,
-              steps = 7
-            )
-          }
         }
       }
     }
@@ -3840,3 +3796,10 @@ private fun AndroidOnDeviceTtsSettingsSection(
     steps = 14
   )
 }
+
+internal fun stripTlDr(text: String): String {
+  return text
+    .replaceFirst(Regex("""^\s*(\*{1,2})?\s*TL;?DR:?\s*(\*{1,2})?:?\s*""", RegexOption.IGNORE_CASE), "")
+    .trimStart()
+}
+

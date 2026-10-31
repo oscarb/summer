@@ -153,7 +153,8 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
     subtitle: String,
     digestId: String? = null,
     websiteId: String? = null,
-    forceReload: Boolean = false
+    forceReload: Boolean = false,
+    startPositionMs: Long = 0L
   ) {
     if (!audioFile.exists() || audioFile.length() <= 44L) {
       Log.e(TAG, "Cannot play episode: file missing or empty at ${audioFile.absolutePath}")
@@ -189,7 +190,7 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
         title = title,
         subtitle = subtitle,
         audioFilePath = audioFile.absolutePath,
-        positionMs = 0L,
+        positionMs = startPositionMs,
         durationMs = 0L,
         playbackError = null
       )
@@ -224,16 +225,19 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
             isPrepared = true
             playbackCompleted = false
             val duration = runCatching { mp.duration.toLong() }.getOrDefault(0L).coerceAtLeast(0L)
+            if (startPositionMs > 0L && startPositionMs < duration - 250L) {
+              runCatching { mp.seekTo(startPositionMs.toInt()) }
+            }
             val shouldStart = _state.value.isPlaying
             if (shouldStart) {
               runCatching { mp.start() }.onFailure { err ->
                 Log.e(TAG, "MediaPlayer.start() failed", err)
               }
             }
-            _state.update { it.copy(durationMs = duration, positionMs = 0L, playbackError = null) }
+            _state.update { it.copy(durationMs = duration, positionMs = startPositionMs, playbackError = null) }
             mediaSession.isActive = true
             updateMediaSessionMetadata(title, subtitle, duration)
-            updateMediaSessionPlaybackState(isPlaying = shouldStart, positionMs = 0L)
+            updateMediaSessionPlaybackState(isPlaying = shouldStart, positionMs = startPositionMs)
             if (shouldStart) {
               startProgressTicker()
             }
@@ -326,7 +330,8 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
           subtitle = _state.value.subtitle,
           digestId = _state.value.activeDigestId,
           websiteId = _state.value.activeWebsiteId,
-          forceReload = true
+          forceReload = true,
+          startPositionMs = _state.value.positionMs
         )
       }
       return
@@ -350,11 +355,38 @@ class PodcastPlaybackController private constructor(private val appContext: Cont
       runCatching { player.seekTo(0) }
       playbackCompleted = false
     }
-    runCatching {
+
+    var started = false
+    try {
       if (!player.isPlaying) {
         player.start()
       }
+      started = player.isPlaying
+    } catch (e: Exception) {
+      Log.w(TAG, "Direct player.start() failed: ${e.message}; recovering by reloading", e)
+      started = false
     }
+
+    if (!started) {
+      // Automatic self-healing: if MediaPlayer was invalidated or in illegal state, reload audio file cleanly
+      val path = _state.value.audioFilePath
+      if (path != null) {
+        val file = File(path)
+        if (file.exists()) {
+          playEpisode(
+            audioFile = file,
+            title = _state.value.title,
+            subtitle = _state.value.subtitle,
+            digestId = _state.value.activeDigestId,
+            websiteId = _state.value.activeWebsiteId,
+            forceReload = true,
+            startPositionMs = if (shouldRewind) 0L else currentPos
+          )
+          return
+        }
+      }
+    }
+
     val pos = if (shouldRewind) {
       0L
     } else {

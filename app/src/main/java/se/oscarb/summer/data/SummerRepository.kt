@@ -348,8 +348,18 @@ class SummerRepository private constructor(private val appContext: Context) {
       quietWindowJob = scope.launch {
         try {
           delay(quietDurationMs)
+          val transitionKey = "session-quiet-handover"
+          playbackController.setGenerationProgress(
+            jobKey = transitionKey,
+            title = "Catch Me Up Podcast",
+            statusText = "Analyzing saved session articles..."
+          )
           playbackController.setQuietWindowCountdown(isWaiting = false)
-          runQuietWindowSessionPodcast()
+          try {
+            runQuietWindowSessionPodcast()
+          } finally {
+            playbackController.clearGenerationProgress(transitionKey)
+          }
         } catch (ce: CancellationException) {
           throw ce
         }
@@ -362,9 +372,19 @@ class SummerRepository private constructor(private val appContext: Context) {
       quietWindowJob?.cancel()
       quietWindowJob = null
     }
+    val transitionKey = "session-quiet-handover"
+    playbackController.setGenerationProgress(
+      jobKey = transitionKey,
+      title = "Catch Me Up Podcast",
+      statusText = "Analyzing saved session articles..."
+    )
     playbackController.setQuietWindowCountdown(isWaiting = false)
     scope.launch {
-      runQuietWindowSessionPodcast()
+      try {
+        runQuietWindowSessionPodcast()
+      } finally {
+        playbackController.clearGenerationProgress(transitionKey)
+      }
     }
   }
 

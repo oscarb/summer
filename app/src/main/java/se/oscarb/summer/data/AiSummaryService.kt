@@ -50,7 +50,7 @@ class AiSummaryService(private val appContext: Context) {
       Summarize the following saved web page so the user can quickly catch up on what it's about and its key takeaways.
       
       Format your response in clean Markdown:
-      - Start with `**TL;DR:**` followed by a crisp 1-2 sentence overview.
+      - Start directly with a crisp 1-2 sentence overview (do NOT include "TL;DR" or prefix with TL;DR).
       - Follow with 3-5 Markdown bullet points (`- **Lead takeaway**: ...`) covering the most important facts, arguments, or insights.
       - Keep it scannable, accurate, and free of filler phrases.
       
@@ -62,7 +62,9 @@ class AiSummaryService(private val appContext: Context) {
       $contentSnippet
     """.trimIndent()
 
-    generateWithSelectedBackend(prompt, settings)
+    generateWithSelectedBackend(prompt, settings).map { raw ->
+      raw.replaceFirst(Regex("""^\s*(\*{1,2})?\s*TL;?DR:?\s*(\*{1,2})?:?\s*""", RegexOption.IGNORE_CASE), "").trimStart()
+    }
   }
 
   /**
@@ -194,7 +196,9 @@ class AiSummaryService(private val appContext: Context) {
       $itemsBlock
     """.trimIndent()
 
-    generateWithSelectedBackend(prompt, settings)
+    generateWithSelectedBackend(prompt, settings).map { raw ->
+      raw.replaceFirst(Regex("""^\s*(\*{1,2})?\s*TL;?DR:?\s*(\*{1,2})?:?\s*""", RegexOption.IGNORE_CASE), "").trimStart()
+    }
   }
 
   /**

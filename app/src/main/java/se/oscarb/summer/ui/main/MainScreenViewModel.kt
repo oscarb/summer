@@ -293,6 +293,21 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
       playbackController.togglePlayPause()
       return
     }
+    val existingAudio = digest.podcastAudioPath?.let { java.io.File(it) }
+    if (!forceRegenerate && existingAudio != null && existingAudio.exists()) {
+      val hostsLabel = se.oscarb.summer.data.PodcastCastCatalog.formatHostList(
+        digest.hostNames.ifEmpty { listOf(repository.settings.value.hostAName, repository.settings.value.hostBName) },
+        digest.language
+      )
+      playbackController.playEpisode(
+        audioFile = existingAudio,
+        title = digest.displayTitle,
+        subtitle = hostsLabel,
+        digestId = digest.id,
+        forceReload = true
+      )
+      return
+    }
     repository.generatePodcastForDigest(
       digestId = digest.id,
       forceRegenerate = forceRegenerate,
