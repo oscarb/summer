@@ -23,9 +23,10 @@ class MainActivity : ComponentActivity() {
 
     handleAutoPlayIntent(intent)
 
+    val navBarScrim = android.graphics.Color.argb(0x80, 0x13, 0x13, 0x16)
     enableEdgeToEdge(
       statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-      navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+      navigationBarStyle = SystemBarStyle.dark(navBarScrim)
     )
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       window.isNavigationBarContrastEnforced = false
