@@ -280,11 +280,7 @@ enum class FeedMode(val title: String, val icon: ImageVector) {
   LINKS("Links", Icons.Default.Link),
   EPISODES("Episodes", Icons.Default.Podcasts);
 
-  fun next(): FeedMode = when (this) {
-    ALL -> LINKS
-    LINKS -> EPISODES
-    EPISODES -> ALL
-  }
+  fun next(): FeedMode = if (this == ALL) LINKS else if (this == LINKS) EPISODES else ALL
 }
 
 enum class EpisodeFilter(val label: String) {
@@ -515,12 +511,16 @@ fun MainScreen(
       val yesterday = remember { today.minusDays(1) }
 
       val filteredDigests = remember(state.digests, activeEpisodeFilter) {
-        when (activeEpisodeFilter) {
-          EpisodeFilter.ALL -> state.digests
-          EpisodeFilter.UNPLAYED -> state.digests.filter { !it.isPlayed }
-          EpisodeFilter.PLAYED -> state.digests.filter { it.isPlayed }
-          EpisodeFilter.ENGLISH -> state.digests.filter { it.language == PodcastLanguage.ENGLISH }
-          EpisodeFilter.SWEDISH -> state.digests.filter { it.language == PodcastLanguage.SWEDISH }
+        if (activeEpisodeFilter == EpisodeFilter.ALL) {
+          state.digests
+        } else if (activeEpisodeFilter == EpisodeFilter.UNPLAYED) {
+          state.digests.filter { !it.isPlayed }
+        } else if (activeEpisodeFilter == EpisodeFilter.PLAYED) {
+          state.digests.filter { it.isPlayed }
+        } else if (activeEpisodeFilter == EpisodeFilter.ENGLISH) {
+          state.digests.filter { it.language == PodcastLanguage.ENGLISH }
+        } else {
+          state.digests.filter { it.language == PodcastLanguage.SWEDISH }
         }
       }
 
@@ -577,10 +577,12 @@ fun MainScreen(
                 onClick = { viewModel.setFilter(filter) },
                 label = {
                   Text(
-                    text = when (filter) {
-                      LinkFilter.UNREAD -> "Unread (${state.unreadCount})"
-                      LinkFilter.ALL -> "All Links"
-                      LinkFilter.ARCHIVED -> "Archived"
+                    text = if (filter == LinkFilter.UNREAD) {
+                      "Unread (${state.unreadCount})"
+                    } else if (filter == LinkFilter.ALL) {
+                      "All Links"
+                    } else {
+                      "Archived"
                     },
                     style = MaterialTheme.typography.labelMedium
                   )
@@ -732,18 +734,16 @@ fun MainScreen(
                   val dismissState = rememberSwipeToDismissBoxState(
                     positionalThreshold = { distance -> distance * 0.55f },
                     confirmValueChange = { value ->
-                      when (value) {
-                        SwipeToDismissBoxValue.StartToEnd -> {
-                          isDismissed = true
-                          viewModel.toggleArchive(website)
-                          true
-                        }
-                        SwipeToDismissBoxValue.EndToStart -> {
-                          isDismissed = true
-                          viewModel.deleteWebsite(website.id)
-                          true
-                        }
-                        SwipeToDismissBoxValue.Settled -> false
+                      if (value == SwipeToDismissBoxValue.StartToEnd) {
+                        isDismissed = true
+                        viewModel.toggleArchive(website)
+                        true
+                      } else if (value == SwipeToDismissBoxValue.EndToStart) {
+                        isDismissed = true
+                        viewModel.deleteWebsite(website.id)
+                        true
+                      } else {
+                        false
                       }
                     }
                   )
@@ -752,10 +752,12 @@ fun MainScreen(
                     state = dismissState,
                     backgroundContent = {
                       val direction = dismissState.dismissDirection
-                      val bgColor = when (direction) {
-                        SwipeToDismissBoxValue.StartToEnd -> SummerPrimaryContainer.copy(alpha = 0.35f)
-                        SwipeToDismissBoxValue.EndToStart -> SummerErrorContainer.copy(alpha = 0.55f)
-                        else -> Color.Transparent
+                      val bgColor = if (direction == SwipeToDismissBoxValue.StartToEnd) {
+                        SummerPrimaryContainer.copy(alpha = 0.35f)
+                      } else if (direction == SwipeToDismissBoxValue.EndToStart) {
+                        SummerErrorContainer.copy(alpha = 0.55f)
+                      } else {
+                        Color.Transparent
                       }
                       Box(
                         modifier = Modifier
@@ -763,9 +765,10 @@ fun MainScreen(
                           .clip(RoundedCornerShape(16.dp))
                           .background(bgColor)
                           .padding(horizontal = 20.dp),
-                        contentAlignment = when (direction) {
-                          SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
-                          else -> Alignment.CenterEnd
+                        contentAlignment = if (direction == SwipeToDismissBoxValue.StartToEnd) {
+                          Alignment.CenterStart
+                        } else {
+                          Alignment.CenterEnd
                         }
                       ) {
                         if (direction == SwipeToDismissBoxValue.StartToEnd) {
@@ -1637,337 +1640,6 @@ internal fun EpisodeWaveformScrubber(
 }
 
 @Composable
-internal fun WebsiteItemCard(
-  website: SavedWebsite,
-  isExpanded: Boolean,
-  onCardClick: () -> Unit,
-  onSummarizeClick: () -> Unit,
-  onToggleArchive: () -> Unit,
-  onDelete: () -> Unit,
-  onOpenExternal: () -> Unit
-) {
-  val context = LocalContext.current
-  val hasThumbnail = website.thumbnailUrl.isNotBlank()
-  val title = website.title.ifBlank { website.domain }
-
-  Surface(
-    onClick = onCardClick,
-    color = SummerCardBackground,
-    shape = RoundedCornerShape(16.dp),
-    border = BorderStroke(1.dp, SummerBorderSubtle),
-    shadowElevation = if (isExpanded) 6.dp else 3.dp,
-    modifier = Modifier.fillMaxWidth()
-  ) {
-    if (!isExpanded) {
-      // Collapsed: 88dp min height, 96dp feathered thumbnail bleeding off the right edge.
-      Box(
-        modifier = Modifier
-          .fillMaxWidth()
-          .defaultMinSize(minHeight = 88.dp)
-          .height(IntrinsicSize.Min)
-      ) {
-        if (hasThumbnail) {
-          FeatheredThumbnail(
-            url = website.thumbnailUrl,
-            leftFadeStart = 0.35f,
-            bottomFadeStart = 0.35f,
-            modifier = Modifier
-              .align(Alignment.TopEnd)
-              .size(96.dp)
-          )
-        }
-
-        Column(
-          modifier = Modifier
-            .fillMaxWidth()
-            .align(Alignment.CenterStart)
-            .padding(
-              start = 16.dp,
-              end = if (hasThumbnail) 72.dp else 24.dp,
-              top = 20.dp,
-              bottom = 20.dp
-            )
-        ) {
-          Text(
-            text = title,
-            style = CardHeadlineStyle,
-            color = SummerHeadline,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-          )
-          Spacer(modifier = Modifier.height(12.dp))
-          WebsiteSourceRow(website = website, showAiBadge = website.summary != null)
-        }
-      }
-    } else {
-      // Expanded: 148dp feathered hero thumbnail top-right, title/domain beside it, full-width body.
-      Box(modifier = Modifier.fillMaxWidth()) {
-        if (hasThumbnail) {
-          FeatheredThumbnail(
-            url = website.thumbnailUrl,
-            leftFadeStart = 0.35f,
-            bottomFadeStart = 0.35f,
-            modifier = Modifier
-              .align(Alignment.TopEnd)
-              .size(96.dp)
-          )
-        }
-
-        Column(modifier = Modifier.fillMaxWidth()) {
-          Column(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(
-                start = 16.dp,
-                top = 20.dp,
-                end = if (hasThumbnail) 72.dp else 24.dp,
-                bottom = if (hasThumbnail) 8.dp else 12.dp
-              )
-          ) {
-            Text(
-              text = title,
-              style = CardHeadlineStyle,
-              color = SummerHeadline,
-              maxLines = 4,
-              overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            WebsiteSourceRow(website = website, showAiBadge = true)
-          }
-
-          Spacer(modifier = Modifier.height(12.dp))
-
-          Column(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(start = 16.dp, end = 16.dp, bottom = 13.dp)
-          ) {
-            when {
-              website.isSummarizing -> SummarySkeletonLoader()
-              website.summaryError != null -> {
-                Surface(
-                  color = SummerErrorContainer.copy(alpha = 0.4f),
-                  shape = RoundedCornerShape(12.dp),
-                  modifier = Modifier.fillMaxWidth()
-                ) {
-                  Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                      text = website.summaryError,
-                      style = CardBodyStyle,
-                      color = SummerError
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedButton(onClick = onSummarizeClick) {
-                      Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                      Spacer(Modifier.width(6.dp))
-                      Text("Retry Summary")
-                    }
-                  }
-                }
-              }
-              website.summary != null -> {
-                val cleanSummary = remember(website.summary) {
-                  stripTlDr(website.summary)
-                }
-                MarkdownText(
-                  markdown = cleanSummary,
-                  style = CardBodyStyle,
-                  color = SummerOnSurface,
-                  listItemColor = SummerOnSurface,
-                  blockSpacing = 10.dp,
-                  listItemSpacing = 6.dp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                  verticalAlignment = Alignment.CenterVertically,
-                  horizontalArrangement = Arrangement.SpaceBetween,
-                  modifier = Modifier.fillMaxWidth()
-                ) {
-                  Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                  ) {
-                    Icon(
-                      imageVector = Icons.Default.AutoAwesome,
-                      contentDescription = null,
-                      modifier = Modifier.size(12.dp),
-                      tint = SummerPrimaryContainer.copy(alpha = 0.8f)
-                    )
-                    Text(
-                      text = website.summaryProvider ?: "AI Summary",
-                      style = CardMetaStyle.copy(fontWeight = FontWeight.Medium),
-                      color = SummerOutline
-                    )
-                  }
-                  IconButton(
-                    onClick = onSummarizeClick,
-                    modifier = Modifier.size(28.dp)
-                  ) {
-                    Icon(
-                      imageVector = Icons.Default.Refresh,
-                      contentDescription = "Regenerate summary",
-                      modifier = Modifier.size(14.dp),
-                      tint = SummerOutline
-                    )
-                  }
-                }
-              }
-              else -> {
-                Button(
-                  onClick = onSummarizeClick,
-                  shape = RoundedCornerShape(12.dp),
-                  colors = ButtonDefaults.buttonColors(
-                    containerColor = SummerPrimary,
-                    contentColor = SummerBackground
-                  ),
-                  modifier = Modifier
-                    .fillMaxWidth()
-                    .height(38.dp)
-                ) {
-                  Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                  Spacer(Modifier.width(6.dp))
-                  Text(
-                    text = "Summarize Article",
-                    style = CardLabelStyle.copy(
-                      fontSize = 12.sp,
-                      lineHeight = 16.sp,
-                      fontWeight = FontWeight.SemiBold,
-                      letterSpacing = 0.04.em
-                    )
-                  )
-                }
-              }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider(color = CardDividerColor, thickness = 1.dp)
-            Spacer(modifier = Modifier.height(9.dp))
-
-            // Bottom action toolbar
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically
-            ) {
-              Row(
-                modifier = Modifier
-                  .clip(RoundedCornerShape(8.dp))
-                  .clickable(onClick = onOpenExternal)
-                  .padding(end = 8.dp, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-              ) {
-                Icon(
-                  imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                  contentDescription = null,
-                  modifier = Modifier.size(16.dp),
-                  tint = SummerOnSurfaceVariant
-                )
-                Text(
-                  text = "Open",
-                  style = CardLabelStyle,
-                  color = SummerOnSurfaceVariant
-                )
-              }
-
-              Row(
-                modifier = Modifier.offset(x = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-              ) {
-                CardToolbarIcon(
-                  imageVector = if (website.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
-                  contentDescription = if (website.isArchived) "Unarchive" else "Archive",
-                  onClick = onToggleArchive
-                )
-                CardToolbarIcon(
-                  imageVector = Icons.Default.Share,
-                  contentDescription = "Share",
-                  onClick = {
-                    val shareText = buildString {
-                      appendLine(website.title)
-                      appendLine(website.url)
-                      if (!website.summary.isNullOrBlank()) {
-                        appendLine()
-                        appendLine("Summary (via Summer):")
-                        appendLine(website.summary)
-                      }
-                    }
-                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                      type = "text/plain"
-                      putExtra(Intent.EXTRA_TEXT, shareText)
-                    }
-                    context.startActivity(Intent.createChooser(sendIntent, "Share website"))
-                  }
-                )
-                CardToolbarIcon(
-                  imageVector = Icons.Default.DeleteOutline,
-                  contentDescription = "Delete",
-                  onClick = onDelete
-                )
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-@Composable
-internal fun WebsiteSourceRow(website: SavedWebsite, showAiBadge: Boolean) {
-  Row(verticalAlignment = Alignment.CenterVertically) {
-    if (website.faviconUrl.isNotBlank()) {
-      AsyncImage(
-        model = website.faviconUrl,
-        contentDescription = null,
-        modifier = Modifier
-          .size(14.dp)
-          .clip(RoundedCornerShape(3.dp))
-      )
-    } else {
-      Box(
-        modifier = Modifier
-          .size(14.dp)
-          .clip(CircleShape)
-          .background(SummerPrimaryContainer.copy(alpha = 0.2f)),
-        contentAlignment = Alignment.Center
-      ) {
-        Icon(
-          imageVector = Icons.Default.Link,
-          contentDescription = null,
-          tint = SummerPrimaryContainer,
-          modifier = Modifier.size(10.dp)
-        )
-      }
-    }
-    Spacer(modifier = Modifier.width(6.dp))
-    Text(
-      text = website.domain,
-      style = CardLabelStyle,
-      color = SummerDomain,
-      maxLines = 1,
-      overflow = TextOverflow.Ellipsis,
-      modifier = Modifier.weight(1f, fill = false)
-    )
-    if (showAiBadge) {
-      Spacer(modifier = Modifier.width(8.dp))
-      Surface(
-        color = SummerPrimaryContainer.copy(alpha = 0.15f),
-        shape = CircleShape
-      ) {
-        Text(
-          text = "AI",
-          style = CardLabelStyle.copy(fontSize = 9.sp, lineHeight = 12.sp),
-          color = SummerPrimaryContainer,
-          modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-        )
-      }
-    }
-  }
-}
-
-@Composable
 internal fun DigestEpisodeCard(
   digest: DigestEntry,
   playback: PodcastPlaybackState,
@@ -2732,10 +2404,12 @@ private fun EmptyFeedView(
     )
     Spacer(modifier = Modifier.height(18.dp))
     Text(
-      text = when (feedMode) {
-        FeedMode.ALL -> "Your feed is clear"
-        FeedMode.LINKS -> "No saved links yet"
-        FeedMode.EPISODES -> "No podcast digests yet"
+      text = if (feedMode == FeedMode.ALL) {
+        "Your feed is clear"
+      } else if (feedMode == FeedMode.LINKS) {
+        "No saved links yet"
+      } else {
+        "No podcast digests yet"
       },
       style = MaterialTheme.typography.headlineSmall,
       color = SummerOnSurface
@@ -3494,8 +3168,7 @@ internal fun SettingsTab(
       val isThreeHosts = settings.podcastHostCount >= 3
 
       // Active TTS Provider Configuration Details
-      when (settings.podcastTtsProvider) {
-        PodcastTtsProvider.GEMINI_MULTISPEAKER -> {
+      if (settings.podcastTtsProvider == PodcastTtsProvider.GEMINI_MULTISPEAKER) {
           val resolvedVoiceA = GeminiCatalog.resolveValidVoice(settings.geminiHostAVoice, "Puck")
           val resolvedVoiceB = GeminiCatalog.resolveValidVoice(settings.geminiHostBVoice, "Kore")
           val resolvedVoiceC = GeminiCatalog.resolveValidVoice(settings.geminiHostCVoice, "Aoede")
@@ -3658,16 +3331,12 @@ internal fun SettingsTab(
             Spacer(modifier = Modifier.height(8.dp))
             VerificationStatusBox(message = msg, isError = verification.ttsIsError)
           }
-        }
-
-        PodcastTtsProvider.ANDROID_ON_DEVICE -> {
+        } else if (settings.podcastTtsProvider == PodcastTtsProvider.ANDROID_ON_DEVICE) {
           AndroidOnDeviceTtsSettingsSection(
             settings = settings,
             onUpdateSettings = onUpdateSettings
           )
-        }
-
-        PodcastTtsProvider.AZURE_SPEECH -> {
+        } else if (settings.podcastTtsProvider == PodcastTtsProvider.AZURE_SPEECH) {
           Text(
             text = "Microsoft Azure AI Speech (500,000 Free Neural Chars/Month)",
             style = MaterialTheme.typography.bodyLarge.copy(
@@ -3794,9 +3463,7 @@ internal fun SettingsTab(
               )
             }
           }
-        }
-
-        PodcastTtsProvider.ELEVENLABS -> {
+        } else if (settings.podcastTtsProvider == PodcastTtsProvider.ELEVENLABS) {
           Text(
             text = "ElevenLabs Neural TTS",
             style = MaterialTheme.typography.bodyLarge.copy(
@@ -3906,9 +3573,7 @@ internal fun SettingsTab(
               )
             }
           }
-        }
-
-        PodcastTtsProvider.OPENAI_COMPATIBLE_TTS -> {
+        } else if (settings.podcastTtsProvider == PodcastTtsProvider.OPENAI_COMPATIBLE_TTS) {
           Text(
             text = "OpenAI / Kokoro / Custom /v1/audio/speech",
             style = MaterialTheme.typography.bodyLarge.copy(
@@ -4058,7 +3723,6 @@ internal fun SettingsTab(
             }
           }
         }
-      }
     }
 
     // -------------------------------------------------------------
@@ -4105,8 +3769,7 @@ internal fun SettingsTab(
       )
 
       // Provider-specific Configuration Fields
-      when (settings.selectedBackend) {
-        AiBackend.FIREBASE_AI -> {
+      if (settings.selectedBackend == AiBackend.FIREBASE_AI) {
           Text(
             text = "Firebase AI Logic Configuration",
             style = MaterialTheme.typography.bodyLarge.copy(
@@ -4158,9 +3821,7 @@ internal fun SettingsTab(
             ),
             modifier = Modifier.fillMaxWidth()
           )
-        }
-
-        AiBackend.DIRECT_GEMINI -> {
+        } else if (settings.selectedBackend == AiBackend.DIRECT_GEMINI) {
           Text(
             text = "Direct Gemini API (Google AI Studio)",
             style = MaterialTheme.typography.bodyLarge.copy(
@@ -4236,9 +3897,7 @@ internal fun SettingsTab(
             ),
             modifier = Modifier.fillMaxWidth()
           )
-        }
-
-        AiBackend.GEMINI_NANO_ON_DEVICE -> {
+        } else if (settings.selectedBackend == AiBackend.GEMINI_NANO_ON_DEVICE) {
           Text(
             text = "On-Device Gemini Nano (Android AICore)",
             style = MaterialTheme.typography.bodyLarge.copy(
@@ -4258,9 +3917,7 @@ internal fun SettingsTab(
             ),
             color = SummerOnSurfaceVariant
           )
-        }
-
-        AiBackend.OPENAI_COMPATIBLE -> {
+        } else if (settings.selectedBackend == AiBackend.OPENAI_COMPATIBLE) {
           Text(
             text = "OpenAI / Anthropic / Custom Endpoint",
             style = MaterialTheme.typography.bodyLarge.copy(
@@ -4345,7 +4002,6 @@ internal fun SettingsTab(
             modifier = Modifier.fillMaxWidth()
           )
         }
-      }
 
       Spacer(modifier = Modifier.height(14.dp))
       Button(

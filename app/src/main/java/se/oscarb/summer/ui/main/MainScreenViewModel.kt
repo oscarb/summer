@@ -90,10 +90,12 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
       Septet(filter, expanded, sheet, err, playback, verification, postSave)
     }
   ) { websites, digests, settings, isGeneratingDigest, (filter, expanded, sheet, err, playback, verification, postSave) ->
-    val filtered = when (filter) {
-      LinkFilter.UNREAD -> websites.filter { !it.isArchived }
-      LinkFilter.ALL -> websites
-      LinkFilter.ARCHIVED -> websites.filter { it.isArchived }
+    val filtered = if (filter == LinkFilter.UNREAD) {
+      websites.filter { !it.isArchived }
+    } else if (filter == LinkFilter.ALL) {
+      websites
+    } else {
+      websites.filter { it.isArchived }
     }
     val liveSheet = sheet?.let { active ->
       digests.firstOrNull { it.id == active.id } ?: active
