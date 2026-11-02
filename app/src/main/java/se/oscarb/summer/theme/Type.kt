@@ -120,22 +120,22 @@ val Typography = Typography(
   bodyLarge = TextStyle(
     fontFamily = ManropeFontFamily,
     fontWeight = FontWeight.Normal,
-    fontSize = 16.sp,
-    lineHeight = 24.sp,
+    fontSize = 15.sp,
+    lineHeight = 22.sp,
     letterSpacing = 0.sp
   ),
   bodyMedium = TextStyle(
     fontFamily = ManropeFontFamily,
     fontWeight = FontWeight.Normal,
     fontSize = 14.sp,
-    lineHeight = 20.sp,
+    lineHeight = 22.sp,
     letterSpacing = 0.sp
   ),
   bodySmall = TextStyle(
     fontFamily = ManropeFontFamily,
     fontWeight = FontWeight.Normal,
     fontSize = 12.sp,
-    lineHeight = 16.sp,
+    lineHeight = 18.sp,
     letterSpacing = 0.01.sp
   ),
   labelLarge = TextStyle(

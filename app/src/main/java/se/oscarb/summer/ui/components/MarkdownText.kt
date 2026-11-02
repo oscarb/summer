@@ -31,7 +31,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import se.oscarb.summer.theme.ManropeFontFamily
+import se.oscarb.summer.theme.NewsreaderFontFamily
+import se.oscarb.summer.theme.SummerOnSurface
+import se.oscarb.summer.theme.SummerOnSurfaceVariant
+import se.oscarb.summer.theme.SummerPrimaryContainer
 
 sealed interface MarkdownBlock {
   data class Heading(val level: Int, val text: String) : MarkdownBlock
@@ -202,7 +209,7 @@ object MarkdownParser {
             val inner = token.substring(2, token.length - 2)
             val start = length
             append(parseInlineAnnotatedString(inner, codeBackground, linkColor))
-            addStyle(SpanStyle(fontWeight = FontWeight.Bold), start, length)
+            addStyle(SpanStyle(fontWeight = FontWeight.Bold, color = SummerOnSurface), start, length)
           }
           token.startsWith("~~") && token.endsWith("~~") && token.length >= 4 -> {
             val inner = token.substring(2, token.length - 2)
@@ -252,8 +259,16 @@ object MarkdownParser {
 fun MarkdownText(
   markdown: String,
   modifier: Modifier = Modifier,
-  style: TextStyle = MaterialTheme.typography.bodyMedium,
-  color: Color = MaterialTheme.colorScheme.onSurface
+  style: TextStyle = MaterialTheme.typography.bodyMedium.copy(
+    fontFamily = ManropeFontFamily,
+    fontSize = 14.sp,
+    lineHeight = 22.sp,
+    fontWeight = FontWeight.Normal
+  ),
+  color: Color = SummerOnSurface,
+  listItemColor: Color = color,
+  blockSpacing: Dp = 8.dp,
+  listItemSpacing: Dp = 6.dp
 ) {
   val blocks = remember(markdown) { MarkdownParser.parseBlocks(markdown) }
   val codeBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
@@ -261,15 +276,30 @@ fun MarkdownText(
 
   Column(
     modifier = modifier.fillMaxWidth(),
-    verticalArrangement = Arrangement.spacedBy(8.dp)
+    verticalArrangement = Arrangement.spacedBy(blockSpacing)
   ) {
     blocks.forEach { block ->
       when (block) {
         is MarkdownBlock.Heading -> {
           val headingStyle = when (block.level) {
-            1 -> MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-            2 -> MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-            else -> style.copy(fontWeight = FontWeight.Bold)
+            1 -> MaterialTheme.typography.titleMedium.copy(
+              fontFamily = NewsreaderFontFamily,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 18.sp,
+              lineHeight = 24.sp
+            )
+            2 -> MaterialTheme.typography.titleSmall.copy(
+              fontFamily = NewsreaderFontFamily,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 16.sp,
+              lineHeight = 22.sp
+            )
+            else -> style.copy(
+              fontFamily = NewsreaderFontFamily,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 15.sp,
+              lineHeight = 20.sp
+            )
           }
           val annotated = remember(block.text, codeBg, linkColor) {
             MarkdownParser.parseInlineAnnotatedString(block.text, codeBg, linkColor)
@@ -277,7 +307,7 @@ fun MarkdownText(
           Text(
             text = annotated,
             style = headingStyle,
-            color = color
+            color = SummerOnSurface
           )
         }
 
@@ -293,7 +323,7 @@ fun MarkdownText(
         }
 
         is MarkdownBlock.BulletList -> {
-          Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          Column(verticalArrangement = Arrangement.spacedBy(listItemSpacing)) {
             block.items.forEach { itemText ->
               val annotated = remember(itemText, codeBg, linkColor) {
                 MarkdownParser.parseInlineAnnotatedString(itemText, codeBg, linkColor)
@@ -301,14 +331,14 @@ fun MarkdownText(
               Row(modifier = Modifier.fillMaxWidth()) {
                 Text(
                   text = "•",
-                  style = style.copy(fontWeight = FontWeight.Bold),
-                  color = MaterialTheme.colorScheme.primary,
-                  modifier = Modifier.padding(end = 8.dp)
+                  style = style,
+                  color = SummerOnSurface,
+                  modifier = Modifier.padding(end = 6.dp)
                 )
                 Text(
                   text = annotated,
                   style = style,
-                  color = color,
+                  color = listItemColor,
                   modifier = Modifier.weight(1f)
                 )
               }
@@ -317,7 +347,7 @@ fun MarkdownText(
         }
 
         is MarkdownBlock.NumberedList -> {
-          Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          Column(verticalArrangement = Arrangement.spacedBy(listItemSpacing)) {
             block.items.forEach { (prefix, itemText) ->
               val annotated = remember(itemText, codeBg, linkColor) {
                 MarkdownParser.parseInlineAnnotatedString(itemText, codeBg, linkColor)
@@ -332,7 +362,7 @@ fun MarkdownText(
                 Text(
                   text = annotated,
                   style = style,
-                  color = color,
+                  color = listItemColor,
                   modifier = Modifier.weight(1f)
                 )
               }

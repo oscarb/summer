@@ -16,8 +16,9 @@ val SummerSurfaceContainerHighest = Color(0xFF353438)
 
 // Text & Content
 val SummerOnSurface = Color(0xFFEDE8DF)
-val SummerHeadline = Color(0xFFEDE8DF)
-val SummerOnSurfaceVariant = Color(0xFF9E9EA7)
+val SummerHeadline = Color(0xFFE4E1E6)
+val SummerOnSurfaceVariant = Color(0xFFD3C4B4)
+val SummerDomain = Color(0xFF9E9EA7)
 val SummerOnBackground = Color(0xFFEDE8DF)
 val SummerTextPrimary = SummerOnSurface
 val SummerTextSecondary = SummerOnSurfaceVariant
