@@ -18,34 +18,39 @@ object ExternalBrowserLauncher {
   private val TEST_BROWSER_PROBE_URI: Uri = Uri.parse("https://www.example.com")
 
   fun getInstalledExternalBrowsers(context: Context): List<ExternalBrowserOption> {
-    val pm = context.packageManager
-    val selfPackage = context.packageName
-    val viewIntent = Intent(Intent.ACTION_VIEW, TEST_BROWSER_PROBE_URI).apply {
-      addCategory(Intent.CATEGORY_BROWSABLE)
-    }
-
-    val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-      PackageManager.MATCH_ALL
-    } else {
-      PackageManager.MATCH_DEFAULT_ONLY
-    }
-
-    val resolveInfos = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-      pm.queryIntentActivities(viewIntent, PackageManager.ResolveInfoFlags.of(flags.toLong()))
-    } else {
-      @Suppress("DEPRECATION")
-      pm.queryIntentActivities(viewIntent, flags)
-    }
-
-    return resolveInfos
-      .mapNotNull { info ->
-        val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
-        if (pkg == selfPackage) return@mapNotNull null
-        val label = info.loadLabel(pm).toString().ifBlank { pkg }
-        ExternalBrowserOption(packageName = pkg, label = label)
+    return try {
+      val pm = context.packageManager
+      val selfPackage = context.packageName
+      val viewIntent = Intent(Intent.ACTION_VIEW, TEST_BROWSER_PROBE_URI).apply {
+        addCategory(Intent.CATEGORY_BROWSABLE)
       }
-      .distinctBy { it.packageName }
-      .sortedWith(compareBy({ !it.packageName.contains("chrome", ignoreCase = true) }, { it.label }))
+
+      val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        PackageManager.MATCH_ALL
+      } else {
+        PackageManager.MATCH_DEFAULT_ONLY
+      }
+
+      val resolveInfos = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        pm.queryIntentActivities(viewIntent, PackageManager.ResolveInfoFlags.of(flags.toLong()))
+      } else {
+        @Suppress("DEPRECATION")
+        pm.queryIntentActivities(viewIntent, flags)
+      }
+
+      resolveInfos
+        .mapNotNull { info ->
+          val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
+          if (pkg == selfPackage || pkg.startsWith("se.oscarb.summer") || pkg.contains("summer", ignoreCase = true)) return@mapNotNull null
+          val label = info.loadLabel(pm).toString().ifBlank { pkg }
+          if (label.contains("Summer", ignoreCase = true)) return@mapNotNull null
+          ExternalBrowserOption(packageName = pkg, label = label)
+        }
+        .distinctBy { it.packageName }
+        .sortedWith(compareBy({ !it.packageName.contains("chrome", ignoreCase = true) }, { it.label }))
+    } catch (_: Throwable) {
+      emptyList()
+    }
   }
 
   fun createBrowserIntent(
