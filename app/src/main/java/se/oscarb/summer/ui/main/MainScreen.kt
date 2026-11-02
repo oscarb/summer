@@ -25,8 +25,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.graphics.vector.ImageVector
 import se.oscarb.summer.theme.NewsreaderFontFamily
 import se.oscarb.summer.theme.ManropeFontFamily
@@ -40,6 +42,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -62,6 +65,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -81,6 +85,11 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.LocalFireDepartment
+import androidx.compose.material.icons.outlined.OpenInBrowser
+import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -116,9 +125,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.unit.em
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.material.icons.filled.FormatQuote
+import kotlin.math.hypot
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -194,6 +213,7 @@ import se.oscarb.summer.data.SavedWebsite
 import se.oscarb.summer.podcast.PodcastPlaybackState
 import se.oscarb.summer.theme.SummerBackground
 import se.oscarb.summer.theme.SummerBorderSubtle
+import se.oscarb.summer.theme.SummerDomain
 import se.oscarb.summer.theme.SummerOutline
 import se.oscarb.summer.theme.SummerTextPrimary
 import se.oscarb.summer.theme.SummerTextSecondary
@@ -214,6 +234,7 @@ import se.oscarb.summer.theme.SummerSurfaceContainerHighest
 import se.oscarb.summer.theme.SummerSurfaceContainerLowest
 import se.oscarb.summer.ui.components.MarkdownText
 import se.oscarb.summer.util.ExternalBrowserLauncher
+import se.oscarb.summer.util.ExternalBrowserOption
 import java.text.DateFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -402,6 +423,23 @@ fun MainScreen(
           onVerifyGeminiTts = viewModel::verifyGeminiTts,
           onVerifyTextBackend = viewModel::verifyTextBackend
         )
+
+        if (innerPadding.calculateBottomPadding() > 0.dp) {
+          Box(
+            modifier = Modifier
+              .fillMaxWidth()
+              .height(innerPadding.calculateBottomPadding())
+              .align(Alignment.BottomCenter)
+              .background(
+                Brush.verticalGradient(
+                  colors = listOf(
+                    SummerBackground.copy(alpha = 0.50f),
+                    SummerBackground.copy(alpha = 0.85f)
+                  )
+                )
+              )
+          )
+        }
       }
     }
     return
@@ -815,6 +853,24 @@ fun MainScreen(
           onTogglePlayPause = viewModel::togglePodcastPlayPause,
           onClosePlayer = viewModel::stopPodcastPlayback,
           onOpenPlayerDetails = viewModel::openActivePodcastDetails
+        )
+      }
+
+      // Half-transparent scrim over navigation bar for 3-button / gesture navigation
+      if (innerPadding.calculateBottomPadding() > 0.dp) {
+        Box(
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(innerPadding.calculateBottomPadding())
+            .align(Alignment.BottomCenter)
+            .background(
+              Brush.verticalGradient(
+                colors = listOf(
+                  SummerBackground.copy(alpha = 0.50f),
+                  SummerBackground.copy(alpha = 0.85f)
+                )
+              )
+            )
         )
       }
     }
@@ -1327,6 +1383,165 @@ internal fun AnimatedEqBars(isPlaying: Boolean, modifier: Modifier = Modifier) {
   }
 }
 
+// ── Feed card design tokens (mirrors the Stitch "Summer" design system) ──────────────────────
+
+/** Stitch `headline-sm` + `leading-snug`: Newsreader 20/27.5, medium. */
+internal val CardHeadlineStyle = TextStyle(
+  fontFamily = NewsreaderFontFamily,
+  fontWeight = FontWeight.Medium,
+  fontSize = 20.sp,
+  lineHeight = 27.5.sp
+)
+
+/** Stitch `body-sm` + `leading-relaxed`: Manrope 13/21. */
+internal val CardBodyStyle = TextStyle(
+  fontFamily = ManropeFontFamily,
+  fontWeight = FontWeight.Normal,
+  fontSize = 13.sp,
+  lineHeight = 21.sp,
+  letterSpacing = 0.01.em
+)
+
+/** Stitch `label-sm`: Manrope 11/14, bold, tracked 0.06em. */
+internal val CardLabelStyle = TextStyle(
+  fontFamily = ManropeFontFamily,
+  fontWeight = FontWeight.Bold,
+  fontSize = 11.sp,
+  lineHeight = 14.sp,
+  letterSpacing = 0.06.em
+)
+
+/** Untracked 11sp Manrope for metadata (hosts, counts, timestamps). */
+internal val CardMetaStyle = TextStyle(
+  fontFamily = ManropeFontFamily,
+  fontWeight = FontWeight.Normal,
+  fontSize = 11.sp,
+  lineHeight = 14.sp
+)
+
+internal val CardDividerColor = SummerBorderSubtle.copy(alpha = 0.6f)
+private val WaveformIdleBarColor = Color(0xFF4F4539).copy(alpha = 0.6f)
+
+/**
+ * Feathers a thumbnail into [base] like the Stitch mock's stacked CSS gradients: a radial vignette
+ * anchored top-right, plus linear fades towards the left and bottom edges.
+ */
+private fun Modifier.thumbnailFeather(
+  base: Color,
+  leftFadeStart: Float,
+  bottomFadeStart: Float
+): Modifier = this.drawWithCache {
+  val radial = Brush.radialGradient(
+    0.20f to Color.Transparent,
+    0.60f to base.copy(alpha = 0.4f),
+    0.96f to base,
+    center = Offset(size.width, 0f),
+    radius = hypot(size.width, size.height).coerceAtLeast(1f)
+  )
+  val towardsLeft = Brush.horizontalGradient(
+    0.05f to base,
+    (1f - leftFadeStart) to Color.Transparent
+  )
+  val towardsBottom = Brush.verticalGradient(
+    bottomFadeStart to Color.Transparent,
+    0.98f to base
+  )
+  onDrawBehind {
+    drawRect(radial)
+    drawRect(towardsLeft)
+    drawRect(towardsBottom)
+  }
+}
+
+/**
+ * Subtle warm glow bleeding in from the top-right corner (Stitch: blurred `primary-container/10`
+ * disc), layered over a faint top-down sheen so the card reads slightly lit from above.
+ */
+private fun Modifier.episodeCardGlow(intensity: Float): Modifier = this.drawWithCache {
+  val glowCenter = Offset(size.width - 16.dp.toPx(), 16.dp.toPx())
+  val glow = Brush.radialGradient(
+    0f to SummerPrimaryContainer.copy(alpha = intensity),
+    0.45f to SummerPrimaryContainer.copy(alpha = intensity * 0.45f),
+    1f to Color.Transparent,
+    center = glowCenter,
+    radius = 140.dp.toPx()
+  )
+  val sheen = Brush.verticalGradient(
+    0f to Color.White.copy(alpha = 0.025f),
+    0.55f to Color.Transparent
+  )
+  onDrawBehind {
+    drawRect(sheen)
+    drawRect(glow)
+  }
+}
+
+@Composable
+internal fun FeatheredThumbnail(
+  url: String,
+  leftFadeStart: Float,
+  bottomFadeStart: Float,
+  modifier: Modifier = Modifier
+) {
+  Box(modifier = modifier) {
+    AsyncImage(
+      model = url,
+      contentDescription = null,
+      contentScale = ContentScale.Crop,
+      placeholder = ColorPainter(SummerSurfaceContainerHigh),
+      modifier = Modifier.fillMaxSize()
+    )
+    Box(
+      modifier = Modifier
+        .fillMaxSize()
+        .thumbnailFeather(SummerCardBackground, leftFadeStart, bottomFadeStart)
+    )
+  }
+}
+
+@Composable
+internal fun CardToolbarIcon(
+  imageVector: ImageVector,
+  contentDescription: String,
+  onClick: () -> Unit
+) {
+  IconButton(onClick = onClick, modifier = Modifier.size(32.dp)) {
+    Icon(
+      imageVector = imageVector,
+      contentDescription = contentDescription,
+      modifier = Modifier.size(18.dp),
+      tint = SummerOutline
+    )
+  }
+}
+
+@Composable
+private fun EpisodeMetaItem(
+  icon: ImageVector,
+  text: String,
+  modifier: Modifier = Modifier
+) {
+  Row(
+    modifier = modifier,
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(4.dp)
+  ) {
+    Icon(
+      imageVector = icon,
+      contentDescription = null,
+      tint = SummerOutline,
+      modifier = Modifier.size(13.dp)
+    )
+    Text(
+      text = text,
+      style = CardMetaStyle,
+      color = SummerOnSurfaceVariant,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis
+    )
+  }
+}
+
 @Composable
 internal fun EpisodeWaveformScrubber(
   positionMs: Long,
@@ -1337,15 +1552,14 @@ internal fun EpisodeWaveformScrubber(
 ) {
   val barHeights = remember {
     listOf(
-      8f, 14f, 18f, 10f, 22f, 16f, 26f, 12f, 18f, 24f,
-      14f, 20f, 10f, 26f, 18f, 12f, 22f, 16f, 24f, 10f,
-      18f, 26f, 14f, 20f, 12f, 24f, 16f, 22f, 10f, 18f,
-      26f, 14f, 20f, 12f, 24f, 18f, 10f, 22f, 16f, 26f,
-      12f, 18f, 14f, 8f
+      12f, 20f, 16f, 24f, 12f, 26f, 20f, 16f, 24f, 20f,
+      26f, 12f, 22f, 18f, 14f, 26f, 12f, 20f, 8f, 22f,
+      16f, 20f, 12f, 24f, 8f, 18f, 14f, 22f
     )
   }
   val fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
-  val activeIndex = (fraction * barHeights.size).toInt().coerceIn(0, barHeights.size)
+  val activeIndex = (fraction * barHeights.size).toInt().coerceIn(0, barHeights.lastIndex)
+  val trackShape = RoundedCornerShape(8.dp)
 
   Column(modifier = modifier.fillMaxWidth()) {
     Row(
@@ -1353,38 +1567,32 @@ internal fun EpisodeWaveformScrubber(
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-      Box(
+      Row(
         modifier = Modifier
           .weight(1f)
-          .height(34.dp)
-          .clip(RoundedCornerShape(8.dp))
+          .height(32.dp)
+          .clip(trackShape)
           .background(SummerSurfaceContainerHigh)
-          .border(1.dp, SummerBorderSubtle.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+          .border(1.dp, SummerBorderSubtle.copy(alpha = 0.4f), trackShape)
           .padding(horizontal = 8.dp),
-        contentAlignment = Alignment.CenterStart
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
       ) {
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          barHeights.forEachIndexed { index, heightDp ->
-            val isPlayed = index < activeIndex
-            val isCurrent = index == activeIndex
-            Box(
-              modifier = Modifier
-                .width(if (isCurrent) 2.5.dp else 1.8.dp)
-                .height(if (isCurrent) 22.dp else heightDp.dp)
-                .clip(RoundedCornerShape(1.dp))
-                .background(
-                  when {
-                    isCurrent -> SummerPrimary
-                    isPlayed -> SummerPrimaryContainer
-                    else -> Color(0xFF524A40)
-                  }
-                )
-            )
-          }
+        barHeights.forEachIndexed { index, heightDp ->
+          val isCurrent = index == activeIndex
+          Box(
+            modifier = Modifier
+              .width(if (isCurrent) 4.dp else 3.dp)
+              .height(if (isCurrent) 24.dp else heightDp.dp)
+              .clip(CircleShape)
+              .background(
+                when {
+                  isCurrent -> SummerPrimary
+                  index < activeIndex -> SummerPrimaryContainer
+                  else -> WaveformIdleBarColor
+                }
+              )
+          )
         }
       }
 
@@ -1392,6 +1600,7 @@ internal fun EpisodeWaveformScrubber(
         onClick = onPlayOrGenerate,
         modifier = Modifier
           .size(44.dp)
+          .shadow(elevation = 10.dp, shape = CircleShape, ambientColor = Color.Black, spotColor = Color.Black)
           .clip(CircleShape)
           .background(SummerPrimaryContainer)
       ) {
@@ -1399,36 +1608,29 @@ internal fun EpisodeWaveformScrubber(
           imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
           contentDescription = if (isPlaying) "Pause podcast" else "Play podcast",
           tint = SummerBackground,
-          modifier = Modifier.size(24.dp)
+          modifier = Modifier.size(22.dp)
         )
       }
     }
 
-    Spacer(modifier = Modifier.height(4.dp))
+    Spacer(modifier = Modifier.height(6.dp))
 
     Row(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(start = 2.dp, end = 56.dp),
+        .padding(end = 56.dp),
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically
     ) {
       Text(
         text = formatDurationMs(positionMs),
-        style = MaterialTheme.typography.labelSmall.copy(
-          fontFamily = ManropeFontFamily,
-          fontWeight = FontWeight.SemiBold,
-          fontSize = 11.sp
-        ),
-        color = SummerPrimaryContainer
+        style = CardMetaStyle.copy(fontWeight = FontWeight.SemiBold),
+        color = SummerPrimary
       )
       Text(
         text = if (durationMs > 0) formatDurationMs(durationMs) else "--:--",
-        style = MaterialTheme.typography.labelSmall.copy(
-          fontFamily = ManropeFontFamily,
-          fontSize = 11.sp
-        ),
-        color = MaterialTheme.colorScheme.outline
+        style = CardMetaStyle,
+        color = SummerOutline
       )
     }
   }
@@ -1445,356 +1647,321 @@ internal fun WebsiteItemCard(
   onOpenExternal: () -> Unit
 ) {
   val context = LocalContext.current
-
-  val cardShape = RoundedCornerShape(16.dp)
+  val hasThumbnail = website.thumbnailUrl.isNotBlank()
+  val title = website.title.ifBlank { website.domain }
 
   Surface(
     onClick = onCardClick,
     color = SummerCardBackground,
-    shape = cardShape,
-    border = BorderStroke(
-      1.dp,
-      if (isExpanded) SummerPrimaryContainer.copy(alpha = 0.45f) else SummerBorderSubtle
-    ),
-    shadowElevation = if (isExpanded) 6.dp else 2.dp,
-    modifier = Modifier
-      .fillMaxWidth()
-      .clip(cardShape)
+    shape = RoundedCornerShape(16.dp),
+    border = BorderStroke(1.dp, SummerBorderSubtle),
+    shadowElevation = if (isExpanded) 6.dp else 3.dp,
+    modifier = Modifier.fillMaxWidth()
   ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-      if (!isExpanded) {
-        // Collapsed state: Compact row matching Stitch collapsed cards
-        Box(
-          modifier = Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-        ) {
-          if (website.thumbnailUrl.isNotBlank()) {
-            Box(
-              modifier = Modifier
-                .width(96.dp)
-                .fillMaxHeight()
-            ) {
-              AsyncImage(
-                model = website.thumbnailUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-              )
-              Box(
-                modifier = Modifier
-                  .fillMaxSize()
-                  .background(
-                    Brush.horizontalGradient(
-                      0f to Color.Transparent,
-                      0.4f to Color.Transparent,
-                      0.95f to SummerCardBackground
-                    )
-                  )
-              )
-            }
-          }
-
-          Column(
+    if (!isExpanded) {
+      // Collapsed: 88dp min height, 96dp feathered thumbnail bleeding off the right edge.
+      Box(
+        modifier = Modifier
+          .fillMaxWidth()
+          .defaultMinSize(minHeight = 88.dp)
+          .height(IntrinsicSize.Min)
+      ) {
+        if (hasThumbnail) {
+          FeatheredThumbnail(
+            url = website.thumbnailUrl,
+            leftFadeStart = 0.35f,
+            bottomFadeStart = 0.35f,
             modifier = Modifier
-              .fillMaxWidth()
-              .padding(
-                start = if (website.thumbnailUrl.isNotBlank()) 92.dp else 16.dp,
-                end = 16.dp,
-                top = 12.dp,
-                bottom = 12.dp
-              )
-          ) {
-            Text(
-              text = website.title.ifBlank { website.domain },
-              style = MaterialTheme.typography.titleMedium.copy(
-                fontFamily = NewsreaderFontFamily,
-                fontWeight = FontWeight.Medium,
-                fontSize = 16.sp,
-                lineHeight = 22.sp
-              ),
-              color = SummerHeadline,
-              maxLines = 2,
-              overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              if (website.faviconUrl.isNotBlank()) {
-                AsyncImage(
-                  model = website.faviconUrl,
-                  contentDescription = null,
-                  modifier = Modifier
-                    .size(13.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-              } else {
-                Surface(
-                  shape = CircleShape,
-                  color = SummerPrimaryContainer.copy(alpha = 0.2f),
-                  modifier = Modifier.size(14.dp)
-                ) {
-                  Icon(
-                    imageVector = Icons.Default.Language,
-                    contentDescription = null,
-                    tint = SummerPrimaryContainer,
-                    modifier = Modifier.padding(2.dp)
-                  )
-                }
-                Spacer(modifier = Modifier.width(6.dp))
-              }
-              Text(
-                text = website.domain,
-                style = MaterialTheme.typography.bodySmall.copy(
-                  fontFamily = ManropeFontFamily,
-                  fontSize = 12.sp
-                ),
-                color = SummerOnSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-              )
-              if (website.summary != null) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Surface(
-                  color = SummerPrimaryContainer.copy(alpha = 0.2f),
-                  shape = CircleShape
-                ) {
-                  Text(
-                    text = "AI",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                      fontFamily = ManropeFontFamily,
-                      fontWeight = FontWeight.Bold,
-                      fontSize = 10.sp
-                    ),
-                    color = SummerPrimaryContainer,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                  )
-                }
-              }
-            }
-          }
-        }
-      } else {
-        // Expanded state: Immersive header with gradient thumbnail
-        if (website.thumbnailUrl.isNotBlank()) {
-          Box(
-            modifier = Modifier
-              .fillMaxWidth()
-              .height(130.dp)
-          ) {
-            AsyncImage(
-              model = website.thumbnailUrl,
-              contentDescription = null,
-              contentScale = ContentScale.Crop,
-              modifier = Modifier.fillMaxSize()
-            )
-            Box(
-              modifier = Modifier
-                .fillMaxSize()
-                .background(
-                  Brush.verticalGradient(
-                    0f to Color.Transparent,
-                    0.6f to SummerCardBackground.copy(alpha = 0.7f),
-                    1f to SummerCardBackground
-                  )
-                )
-            )
-          }
+              .align(Alignment.TopEnd)
+              .size(96.dp)
+          )
         }
 
         Column(
           modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp)
+            .align(Alignment.CenterStart)
+            .padding(
+              start = 16.dp,
+              end = if (hasThumbnail) 72.dp else 24.dp,
+              top = 20.dp,
+              bottom = 20.dp
+            )
         ) {
           Text(
-            text = website.title.ifBlank { website.domain },
-            style = MaterialTheme.typography.headlineSmall.copy(
-              fontFamily = NewsreaderFontFamily,
-              fontWeight = FontWeight.Medium,
-              fontSize = 20.sp,
-              lineHeight = 26.sp
-            ),
-            color = SummerHeadline
+            text = title,
+            style = CardHeadlineStyle,
+            color = SummerHeadline,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
           )
-          Spacer(modifier = Modifier.height(6.dp))
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            if (website.faviconUrl.isNotBlank()) {
-              AsyncImage(
-                model = website.faviconUrl,
-                contentDescription = null,
-                modifier = Modifier
-                  .size(14.dp)
-                  .clip(RoundedCornerShape(3.dp))
-              )
-              Spacer(modifier = Modifier.width(6.dp))
-            }
-            Text(
-              text = website.domain,
-              style = MaterialTheme.typography.bodySmall.copy(
-                fontFamily = ManropeFontFamily,
-                fontSize = 12.sp
-              ),
-              color = SummerOnSurfaceVariant
-            )
-          }
-
           Spacer(modifier = Modifier.height(12.dp))
-          HorizontalDivider(color = SummerBorderSubtle)
-          Spacer(modifier = Modifier.height(12.dp))
+          WebsiteSourceRow(website = website, showAiBadge = website.summary != null)
+        }
+      }
+    } else {
+      // Expanded: 148dp feathered hero thumbnail top-right, title/domain beside it, full-width body.
+      Box(modifier = Modifier.fillMaxWidth()) {
+        if (hasThumbnail) {
+          FeatheredThumbnail(
+            url = website.thumbnailUrl,
+            leftFadeStart = 0.35f,
+            bottomFadeStart = 0.35f,
+            modifier = Modifier
+              .align(Alignment.TopEnd)
+              .size(96.dp)
+          )
+        }
 
-          // Summary or action buttons
-          when {
-            website.isSummarizing -> SummarySkeletonLoader()
-            website.summaryError != null -> {
-              Surface(
-                color = SummerErrorContainer.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-              ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                  Text(
-                    text = website.summaryError,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = SummerError
-                  )
-                  Spacer(modifier = Modifier.height(8.dp))
-                  OutlinedButton(onClick = onSummarizeClick) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Retry Summary")
-                  }
-                }
-              }
-            }
-            website.summary != null -> {
-              val cleanSummary = remember(website.summary) {
-                stripTlDr(website.summary)
-              }
-              MarkdownText(
-                markdown = cleanSummary,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                  fontFamily = ManropeFontFamily,
-                  fontSize = 14.sp,
-                  lineHeight = 22.sp
-                )
+        Column(modifier = Modifier.fillMaxWidth()) {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(
+                start = 16.dp,
+                top = 20.dp,
+                end = if (hasThumbnail) 72.dp else 24.dp,
+                bottom = if (hasThumbnail) 8.dp else 12.dp
               )
-              Spacer(modifier = Modifier.height(10.dp))
-              Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-              ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                  Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp),
-                    tint = SummerPrimaryContainer
-                  )
-                  Spacer(modifier = Modifier.width(6.dp))
-                  Text(
-                    text = website.summaryProvider ?: "AI Summary",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                      fontFamily = ManropeFontFamily,
-                      fontWeight = FontWeight.SemiBold
-                    ),
-                    color = SummerPrimaryContainer
-                  )
-                }
-                IconButton(
-                  onClick = onSummarizeClick,
-                  modifier = Modifier.size(26.dp)
-                ) {
-                  Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = "Regenerate summary",
-                    modifier = Modifier.size(15.dp),
-                    tint = SummerOnSurfaceVariant
-                  )
-                }
-              }
-            }
-            else -> {
-              Button(
-                onClick = onSummarizeClick,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                  containerColor = SummerPrimaryContainer,
-                  contentColor = SummerOnPrimaryContainer
-                )
-              ) {
-                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Summarize Article", style = MaterialTheme.typography.labelMedium)
-              }
-            }
-          }
-
-          Spacer(modifier = Modifier.height(14.dp))
-
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
           ) {
-            OutlinedButton(
-              onClick = onOpenExternal,
-              contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-              border = BorderStroke(1.dp, SummerBorderSubtle)
-            ) {
-              Icon(
-                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = SummerOnSurface
-              )
-              Spacer(modifier = Modifier.width(6.dp))
-              Text("Open", color = SummerOnSurface, style = MaterialTheme.typography.labelMedium)
-            }
+            Text(
+              text = title,
+              style = CardHeadlineStyle,
+              color = SummerHeadline,
+              maxLines = 4,
+              overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            WebsiteSourceRow(website = website, showAiBadge = true)
+          }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              IconButton(onClick = onToggleArchive) {
-                Icon(
-                  imageVector = if (website.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
-                  contentDescription = if (website.isArchived) "Unarchive" else "Archive",
-                  tint = SummerOnSurfaceVariant
-                )
-              }
-              IconButton(
-                onClick = {
-                  val shareText = buildString {
-                    appendLine(website.title)
-                    appendLine(website.url)
-                    if (!website.summary.isNullOrBlank()) {
-                      appendLine()
-                      appendLine("Summary (via Summer):")
-                      appendLine(website.summary)
+          Spacer(modifier = Modifier.height(12.dp))
+
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(start = 16.dp, end = 16.dp, bottom = 13.dp)
+          ) {
+            when {
+              website.isSummarizing -> SummarySkeletonLoader()
+              website.summaryError != null -> {
+                Surface(
+                  color = SummerErrorContainer.copy(alpha = 0.4f),
+                  shape = RoundedCornerShape(12.dp),
+                  modifier = Modifier.fillMaxWidth()
+                ) {
+                  Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                      text = website.summaryError,
+                      style = CardBodyStyle,
+                      color = SummerError
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(onClick = onSummarizeClick) {
+                      Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                      Spacer(Modifier.width(6.dp))
+                      Text("Retry Summary")
                     }
                   }
-                  val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, shareText)
-                  }
-                  context.startActivity(Intent.createChooser(sendIntent, "Share website"))
                 }
+              }
+              website.summary != null -> {
+                val cleanSummary = remember(website.summary) {
+                  stripTlDr(website.summary)
+                }
+                MarkdownText(
+                  markdown = cleanSummary,
+                  style = CardBodyStyle,
+                  color = SummerOnSurface,
+                  listItemColor = SummerOnSurface,
+                  blockSpacing = 10.dp,
+                  listItemSpacing = 6.dp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.SpaceBetween,
+                  modifier = Modifier.fillMaxWidth()
+                ) {
+                  Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                  ) {
+                    Icon(
+                      imageVector = Icons.Default.AutoAwesome,
+                      contentDescription = null,
+                      modifier = Modifier.size(12.dp),
+                      tint = SummerPrimaryContainer.copy(alpha = 0.8f)
+                    )
+                    Text(
+                      text = website.summaryProvider ?: "AI Summary",
+                      style = CardMetaStyle.copy(fontWeight = FontWeight.Medium),
+                      color = SummerOutline
+                    )
+                  }
+                  IconButton(
+                    onClick = onSummarizeClick,
+                    modifier = Modifier.size(28.dp)
+                  ) {
+                    Icon(
+                      imageVector = Icons.Default.Refresh,
+                      contentDescription = "Regenerate summary",
+                      modifier = Modifier.size(14.dp),
+                      tint = SummerOutline
+                    )
+                  }
+                }
+              }
+              else -> {
+                Button(
+                  onClick = onSummarizeClick,
+                  shape = RoundedCornerShape(12.dp),
+                  colors = ButtonDefaults.buttonColors(
+                    containerColor = SummerPrimary,
+                    contentColor = SummerBackground
+                  ),
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .height(38.dp)
+                ) {
+                  Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                  Spacer(Modifier.width(6.dp))
+                  Text(
+                    text = "Summarize Article",
+                    style = CardLabelStyle.copy(
+                      fontSize = 12.sp,
+                      lineHeight = 16.sp,
+                      fontWeight = FontWeight.SemiBold,
+                      letterSpacing = 0.04.em
+                    )
+                  )
+                }
+              }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(color = CardDividerColor, thickness = 1.dp)
+            Spacer(modifier = Modifier.height(9.dp))
+
+            // Bottom action toolbar
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Row(
+                modifier = Modifier
+                  .clip(RoundedCornerShape(8.dp))
+                  .clickable(onClick = onOpenExternal)
+                  .padding(end = 8.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
               ) {
                 Icon(
-                  imageVector = Icons.Default.Share,
-                  contentDescription = "Share",
+                  imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                  contentDescription = null,
+                  modifier = Modifier.size(16.dp),
                   tint = SummerOnSurfaceVariant
                 )
+                Text(
+                  text = "Open",
+                  style = CardLabelStyle,
+                  color = SummerOnSurfaceVariant
+                )
               }
-              IconButton(onClick = onDelete) {
-                Icon(
+
+              Row(
+                modifier = Modifier.offset(x = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+              ) {
+                CardToolbarIcon(
+                  imageVector = if (website.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                  contentDescription = if (website.isArchived) "Unarchive" else "Archive",
+                  onClick = onToggleArchive
+                )
+                CardToolbarIcon(
+                  imageVector = Icons.Default.Share,
+                  contentDescription = "Share",
+                  onClick = {
+                    val shareText = buildString {
+                      appendLine(website.title)
+                      appendLine(website.url)
+                      if (!website.summary.isNullOrBlank()) {
+                        appendLine()
+                        appendLine("Summary (via Summer):")
+                        appendLine(website.summary)
+                      }
+                    }
+                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                      type = "text/plain"
+                      putExtra(Intent.EXTRA_TEXT, shareText)
+                    }
+                    context.startActivity(Intent.createChooser(sendIntent, "Share website"))
+                  }
+                )
+                CardToolbarIcon(
                   imageVector = Icons.Default.DeleteOutline,
                   contentDescription = "Delete",
-                  tint = SummerError
+                  onClick = onDelete
                 )
               }
             }
           }
         }
+      }
+    }
+  }
+}
+
+@Composable
+internal fun WebsiteSourceRow(website: SavedWebsite, showAiBadge: Boolean) {
+  Row(verticalAlignment = Alignment.CenterVertically) {
+    if (website.faviconUrl.isNotBlank()) {
+      AsyncImage(
+        model = website.faviconUrl,
+        contentDescription = null,
+        modifier = Modifier
+          .size(14.dp)
+          .clip(RoundedCornerShape(3.dp))
+      )
+    } else {
+      Box(
+        modifier = Modifier
+          .size(14.dp)
+          .clip(CircleShape)
+          .background(SummerPrimaryContainer.copy(alpha = 0.2f)),
+        contentAlignment = Alignment.Center
+      ) {
+        Icon(
+          imageVector = Icons.Default.Link,
+          contentDescription = null,
+          tint = SummerPrimaryContainer,
+          modifier = Modifier.size(10.dp)
+        )
+      }
+    }
+    Spacer(modifier = Modifier.width(6.dp))
+    Text(
+      text = website.domain,
+      style = CardLabelStyle,
+      color = SummerDomain,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+      modifier = Modifier.weight(1f, fill = false)
+    )
+    if (showAiBadge) {
+      Spacer(modifier = Modifier.width(8.dp))
+      Surface(
+        color = SummerPrimaryContainer.copy(alpha = 0.15f),
+        shape = CircleShape
+      ) {
+        Text(
+          text = "AI",
+          style = CardLabelStyle.copy(fontSize = 9.sp, lineHeight = 12.sp),
+          color = SummerPrimaryContainer,
+          modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+        )
       }
     }
   }
@@ -1847,7 +2014,7 @@ internal fun DigestEpisodeCard(
           if (digest.isPlayed) {
             Spacer(modifier = Modifier.width(8.dp))
             Surface(
-              shape = RoundedCornerShape(4.dp),
+              shape = CircleShape,
               color = SummerPrimaryContainer.copy(alpha = 0.2f)
             ) {
               Text(
@@ -1859,7 +2026,7 @@ internal fun DigestEpisodeCard(
                   letterSpacing = 0.5.sp
                 ),
                 color = SummerPrimaryContainer,
-                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
               )
             }
           }
@@ -1879,15 +2046,10 @@ internal fun DigestEpisodeCard(
 
       Text(
         text = digest.displayTitle,
-        style = MaterialTheme.typography.headlineSmall.copy(
-          fontFamily = NewsreaderFontFamily,
-          fontWeight = FontWeight.Medium,
-          fontSize = 24.sp,
-          lineHeight = 32.sp
-        ),
+        style = MaterialTheme.typography.headlineSmall,
         color = SummerHeadline,
         maxLines = 2,
-        overflow = TextOverflow.Ellipsis
+        overflow = TextOverflow.Ellipsis,
       )
 
       Spacer(modifier = Modifier.height(10.dp))
@@ -1899,17 +2061,17 @@ internal fun DigestEpisodeCard(
       ) {
         Surface(
           color = SummerSurfaceContainerHigh,
-          shape = RoundedCornerShape(4.dp)
+          shape = CircleShape
         ) {
           Text(
-            text = if (digest.language == PodcastLanguage.SWEDISH) "🇸🇪 Svenska" else "🇬🇧 English",
+            text = if (digest.language == PodcastLanguage.SWEDISH) "🇸🇪" else "🇬🇧",
             style = MaterialTheme.typography.labelSmall.copy(
               fontFamily = ManropeFontFamily,
-              fontSize = 11.sp,
+              fontSize = 12.sp,
               fontWeight = FontWeight.Medium
             ),
             color = SummerOnSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
           )
         }
 
@@ -2472,7 +2634,7 @@ internal fun CatchMeUpDigestSheetContent(
 }
 
 @Composable
-private fun SummarySkeletonLoader() {
+internal fun SummarySkeletonLoader() {
   val transition = rememberInfiniteTransition(label = "summary_skeleton")
   val pulseAlpha by transition.animateFloat(
     initialValue = 0.28f,
@@ -2580,9 +2742,10 @@ private fun EmptyFeedView(
     )
     Spacer(modifier = Modifier.height(8.dp))
     Text(
-      text = when (feedMode) {
-        FeedMode.EPISODES -> "Save links to your reading list and tap \"Catch Me Up\" to produce an intelligent AI podcast briefing."
-        else -> "Share articles to Summer from your browser or tap Add URL to curate your personal reading list."
+      text = if (feedMode == FeedMode.EPISODES) {
+        "Save links to your reading list and tap \"Catch Me Up\" to produce an intelligent AI podcast briefing."
+      } else {
+        "Share articles to Summer from your browser or tap Add URL to curate your personal reading list."
       },
       style = MaterialTheme.typography.bodyMedium,
       color = SummerOnSurfaceVariant,
@@ -2623,7 +2786,7 @@ private fun formatDurationMs(ms: Long): String {
 }
 
 @Composable
-private fun SettingsSectionCard(
+internal fun SettingsSectionCard(
   title: String,
   subtitle: String,
   icon: ImageVector,
@@ -2633,12 +2796,15 @@ private fun SettingsSectionCard(
 ) {
   Surface(
     color = SummerSurfaceContainer,
-    shape = RoundedCornerShape(20.dp),
+    shape = RoundedCornerShape(22.dp),
     border = BorderStroke(1.dp, SummerBorderSubtle),
     modifier = modifier.fillMaxWidth()
   ) {
-    Column(modifier = Modifier.padding(16.dp)) {
-      Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(modifier = Modifier.padding(20.dp)) {
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+      ) {
         Icon(
           imageVector = icon,
           contentDescription = null,
@@ -2653,25 +2819,28 @@ private fun SettingsSectionCard(
             fontSize = 20.sp,
             fontWeight = FontWeight.Medium
           ),
-          color = SummerPrimary
+          color = SummerPrimary,
+          modifier = Modifier.weight(1f)
         )
       }
       Text(
         text = subtitle,
         style = MaterialTheme.typography.bodySmall.copy(
           fontFamily = ManropeFontFamily,
-          fontSize = 13.sp
+          fontSize = 13.sp,
+          lineHeight = 18.sp
         ),
         color = SummerOnSurfaceVariant,
-        modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+        modifier = Modifier.padding(top = 4.dp, start = 28.dp)
       )
+      Spacer(modifier = Modifier.height(18.dp))
       content()
     }
   }
 }
 
 @Composable
-private fun SettingsSwitchRow(
+internal fun SettingsSwitchRow(
   title: String,
   subtitle: String,
   checked: Boolean,
@@ -2679,17 +2848,19 @@ private fun SettingsSwitchRow(
   modifier: Modifier = Modifier
 ) {
   Row(
-    modifier = modifier.fillMaxWidth(),
+    modifier = modifier
+      .fillMaxWidth()
+      .padding(vertical = 4.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.SpaceBetween
   ) {
-    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+    Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
       Text(
         text = title,
         style = MaterialTheme.typography.bodyLarge.copy(
           fontFamily = ManropeFontFamily,
-          fontSize = 14.sp,
-          fontWeight = FontWeight.Medium
+          fontSize = 15.sp,
+          fontWeight = FontWeight.SemiBold
         ),
         color = SummerOnSurface
       )
@@ -2697,10 +2868,11 @@ private fun SettingsSwitchRow(
         text = subtitle,
         style = MaterialTheme.typography.bodySmall.copy(
           fontFamily = ManropeFontFamily,
-          fontSize = 12.sp
+          fontSize = 13.sp,
+          lineHeight = 18.sp
         ),
         color = SummerOnSurfaceVariant,
-        modifier = Modifier.padding(top = 2.dp)
+        modifier = Modifier.padding(top = 3.dp)
       )
     }
     Switch(
@@ -2718,7 +2890,7 @@ private fun SettingsSwitchRow(
 }
 
 @Composable
-private fun SettingsRadioCard(
+internal fun SettingsRadioCard(
   selected: Boolean,
   onClick: () -> Unit,
   title: String,
@@ -2729,7 +2901,7 @@ private fun SettingsRadioCard(
 ) {
   Surface(
     onClick = onClick,
-    color = if (selected) SummerPrimaryContainer.copy(alpha = 0.12f) else SummerSurfaceDim,
+    color = if (selected) SummerPrimaryContainer.copy(alpha = 0.08f) else SummerSurfaceDim,
     shape = RoundedCornerShape(14.dp),
     border = BorderStroke(
       width = if (selected) 1.5.dp else 1.dp,
@@ -2740,17 +2912,17 @@ private fun SettingsRadioCard(
     Row(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(12.dp),
+        .padding(horizontal = 16.dp, vertical = 14.dp),
       verticalAlignment = Alignment.Top
     ) {
       Box(
         modifier = Modifier
           .padding(top = 2.dp)
-          .size(16.dp)
+          .size(18.dp)
           .clip(CircleShape)
           .border(
-            width = if (selected) 2.dp else 1.dp,
-            color = if (selected) SummerPrimaryContainer else SummerOutline,
+            width = if (selected) 2.dp else 1.5.dp,
+            color = if (selected) SummerPrimaryContainer else SummerOutline.copy(alpha = 0.6f),
             shape = CircleShape
           ),
         contentAlignment = Alignment.Center
@@ -2764,7 +2936,7 @@ private fun SettingsRadioCard(
           )
         }
       }
-      Spacer(modifier = Modifier.width(10.dp))
+      Spacer(modifier = Modifier.width(12.dp))
       Column(modifier = Modifier.weight(1f)) {
         Row(
           modifier = Modifier.fillMaxWidth(),
@@ -2773,8 +2945,9 @@ private fun SettingsRadioCard(
         ) {
           Text(
             text = title,
-            style = MaterialTheme.typography.titleSmall.copy(
+            style = MaterialTheme.typography.bodyLarge.copy(
               fontFamily = ManropeFontFamily,
+              fontSize = 14.sp,
               fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
             ),
             color = if (selected) SummerPrimary else SummerOnSurface
@@ -2782,17 +2955,18 @@ private fun SettingsRadioCard(
           if (!badgeText.isNullOrBlank()) {
             Surface(
               color = if (selected) SummerPrimaryContainer.copy(alpha = 0.2f) else SummerSurfaceContainerHighest,
-              shape = RoundedCornerShape(6.dp)
+              shape = CircleShape
             ) {
               Text(
                 text = badgeText,
                 style = MaterialTheme.typography.labelSmall.copy(
                   fontFamily = ManropeFontFamily,
                   fontSize = 10.sp,
-                  fontWeight = FontWeight.Bold
+                  fontWeight = FontWeight.Bold,
+                  letterSpacing = 0.04.sp
                 ),
                 color = if (selected) SummerPrimary else SummerOnSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
               )
             }
           }
@@ -2801,15 +2975,16 @@ private fun SettingsRadioCard(
           text = subtitle,
           style = MaterialTheme.typography.bodySmall.copy(
             fontFamily = ManropeFontFamily,
-            fontSize = 12.sp
+            fontSize = 12.sp,
+            lineHeight = 17.sp
           ),
           color = SummerOnSurfaceVariant,
-          modifier = Modifier.padding(top = 2.dp)
+          modifier = Modifier.padding(top = 3.dp)
         )
         if (!codeTag.isNullOrBlank()) {
           Surface(
             color = SummerSurfaceDim.copy(alpha = 0.9f),
-            shape = RoundedCornerShape(4.dp),
+            shape = CircleShape,
             border = BorderStroke(1.dp, SummerBorderSubtle),
             modifier = Modifier.padding(top = 6.dp)
           ) {
@@ -2820,7 +2995,7 @@ private fun SettingsRadioCard(
                 fontSize = 11.sp
               ),
               color = SummerSecondary,
-              modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+              modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
             )
           }
         }
@@ -2830,7 +3005,7 @@ private fun SettingsRadioCard(
 }
 
 @Composable
-private fun SettingsTab(
+internal fun SettingsTab(
   settings: AppSettings,
   verification: VerificationUiState,
   bottomPadding: androidx.compose.ui.unit.Dp = 16.dp,
@@ -2851,18 +3026,18 @@ private fun SettingsTab(
     modifier = Modifier
       .fillMaxSize()
       .verticalScroll(rememberScrollState())
-      .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = bottomPadding),
-    verticalArrangement = Arrangement.spacedBy(16.dp)
+      .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = bottomPadding),
+    verticalArrangement = Arrangement.spacedBy(20.dp)
   ) {
     // Summarization & Session Auto-Podcast Behavior Card
     SettingsSectionCard(
-      title = "Automation & Digests",
-      subtitle = "Background workflows, link capture summarization and auto-generated podcasts",
-      icon = Icons.Default.Sync
+      title = "Summarization & Auto-Podcast",
+      subtitle = "Automate reading digests and background episode creation",
+      icon = Icons.Default.AutoAwesome
     ) {
       SettingsSwitchRow(
         title = "Auto-summarize text on save",
-        subtitle = "Automatically generate the Markdown AI text summary right after a link is saved.",
+        subtitle = "Automatically generates Markdown AI summary after saving a link",
         checked = settings.autoSummarizeOnSave,
         onCheckedChange = { enabled ->
           onUpdateSettings { it.copy(autoSummarizeOnSave = enabled) }
@@ -2870,13 +3045,13 @@ private fun SettingsTab(
       )
 
       HorizontalDivider(
-        color = SummerBorderSubtle,
+        color = SummerBorderSubtle.copy(alpha = 0.5f),
         modifier = Modifier.padding(vertical = 12.dp)
       )
 
       SettingsSwitchRow(
         title = "Auto-podcast after browsing session",
-        subtitle = "Waits until you stop saving links (e.g. from Google Feed), groups links saved close in time, silently generates a Catch Me Up podcast, and notifies you with a Play button.",
+        subtitle = "Silently groups session links, generates a Catch Me Up episode, and alerts you with Play",
         checked = settings.autoPodcastAfterQuietWindow,
         onCheckedChange = { enabled ->
           onUpdateSettings { it.copy(autoPodcastAfterQuietWindow = enabled) }
@@ -2884,47 +3059,48 @@ private fun SettingsTab(
       )
 
       AnimatedVisibility(visible = settings.autoPodcastAfterQuietWindow) {
-        Column(
-          modifier = Modifier.padding(top = 14.dp),
-          verticalArrangement = Arrangement.spacedBy(12.dp)
+        Surface(
+          color = SummerSurfaceDim,
+          shape = RoundedCornerShape(16.dp),
+          border = BorderStroke(1.dp, SummerBorderSubtle),
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp)
         ) {
-          // Session Quiet Window Slider
-          Surface(
-            color = SummerSurfaceDim,
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, SummerBorderSubtle),
-            modifier = Modifier.fillMaxWidth()
+          Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
           ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+            // Session Quiet Window Slider
+            Column {
               Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
               ) {
                 Text(
-                  text = "Session Quiet Window",
-                  style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                  color = SummerTextPrimary
+                  text = "Start podcast after session quiet-window",
+                  style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = ManropeFontFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                  ),
+                  color = SummerOnSurface,
+                  modifier = Modifier.weight(1f)
                 )
-                Surface(
-                  color = SummerPrimaryContainer.copy(alpha = 0.18f),
-                  shape = RoundedCornerShape(6.dp)
-                ) {
-                  Text(
-                    text = "${settings.autoPodcastQuietMinutes} min",
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                    color = SummerPrimaryContainer,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                  )
-                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                  text = "${settings.autoPodcastQuietMinutes} min after last saved link",
+                  style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = ManropeFontFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.End
+                  ),
+                  color = SummerPrimaryContainer
+                )
               }
               Spacer(modifier = Modifier.height(4.dp))
-              Text(
-                text = "Wait for you to stop saving links before initiating episode generation.",
-                style = MaterialTheme.typography.bodySmall,
-                color = SummerTextSecondary
-              )
-              Spacer(modifier = Modifier.height(6.dp))
               Slider(
                 value = settings.autoPodcastQuietMinutes.toFloat(),
                 onValueChange = { onUpdateSettings { s -> s.copy(autoPodcastQuietMinutes = it.roundToInt()) } },
@@ -2937,45 +3113,37 @@ private fun SettingsTab(
                 )
               )
             }
-          }
 
-          // Minimum Session Links Slider
-          Surface(
-            color = SummerSurfaceDim,
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, SummerBorderSubtle),
-            modifier = Modifier.fillMaxWidth()
-          ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+            // Minimum Session Links Slider
+            Column {
               Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
               ) {
                 Text(
-                  text = "Minimum Links in Session",
-                  style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                  color = SummerTextPrimary
+                  text = "Minimum session burst threshold",
+                  style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = ManropeFontFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                  ),
+                  color = SummerOnSurface,
+                  modifier = Modifier.weight(1f)
                 )
-                Surface(
-                  color = SummerPrimaryContainer.copy(alpha = 0.18f),
-                  shape = RoundedCornerShape(6.dp)
-                ) {
-                  Text(
-                    text = "${settings.autoPodcastMinLinks} links",
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                    color = SummerPrimaryContainer,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                  )
-                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                  text = "${settings.autoPodcastMinLinks} links",
+                  style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = ManropeFontFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.End
+                  ),
+                  color = SummerPrimaryContainer
+                )
               }
               Spacer(modifier = Modifier.height(4.dp))
-              Text(
-                text = "Only trigger silent podcast generation if at least this many unread links were collected.",
-                style = MaterialTheme.typography.bodySmall,
-                color = SummerTextSecondary
-              )
-              Spacer(modifier = Modifier.height(6.dp))
               Slider(
                 value = settings.autoPodcastMinLinks.toFloat(),
                 onValueChange = { onUpdateSettings { s -> s.copy(autoPodcastMinLinks = it.roundToInt()) } },
@@ -2998,16 +3166,21 @@ private fun SettingsTab(
     // -------------------------------------------------------------
     SettingsSectionCard(
       title = "Podcast Hosts, Language & Voices",
-      subtitle = "Choose podcast language, 2 or 3 hosts, randomized or custom voices, and your TTS engine.",
-      icon = Icons.Default.RecordVoiceOver
+      subtitle = "Acoustic profile and multi-voice generation orchestrator",
+      icon = Icons.Default.GraphicEq
     ) {
       // Format & Style
       Text(
         text = "PODCAST FORMAT & STYLE",
-        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
-        color = SummerTextSecondary
+        style = MaterialTheme.typography.labelSmall.copy(
+          fontFamily = ManropeFontFamily,
+          fontWeight = FontWeight.Bold,
+          fontSize = 11.sp,
+          letterSpacing = 0.06.sp
+        ),
+        color = SummerOnSurfaceVariant
       )
-      Spacer(modifier = Modifier.height(6.dp))
+      Spacer(modifier = Modifier.height(8.dp))
       Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth()
@@ -3020,92 +3193,120 @@ private fun SettingsTab(
             label = {
               Text(
                 text = if (style == PodcastStyle.MKBHD_WAVEFORM) "🎙️ Waveform (MKBHD)" else "☀️ Standard Briefing",
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
+                style = MaterialTheme.typography.labelMedium.copy(
+                  fontFamily = ManropeFontFamily,
+                  fontSize = 13.sp,
+                  fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                )
               )
             },
             colors = FilterChipDefaults.filterChipColors(
-              selectedContainerColor = SummerPrimaryContainer.copy(alpha = 0.22f),
+              selectedContainerColor = SummerPrimaryContainer.copy(alpha = 0.2f),
               selectedLabelColor = SummerPrimaryContainer,
-              containerColor = SummerSurfaceDim,
-              labelColor = SummerTextSecondary
+              containerColor = SummerSurfaceContainerHigh.copy(alpha = 0.6f),
+              labelColor = SummerOnSurfaceVariant
             ),
             border = FilterChipDefaults.filterChipBorder(
               enabled = true,
               selected = isSelected,
-              borderColor = if (isSelected) SummerPrimaryContainer else SummerBorderSubtle
-            )
+              borderColor = SummerBorderSubtle,
+              selectedBorderColor = SummerPrimaryContainer.copy(alpha = 0.5f)
+            ),
+            shape = CircleShape
           )
         }
       }
       Spacer(modifier = Modifier.height(4.dp))
       Text(
         text = settings.podcastStyle.subtitle,
-        style = MaterialTheme.typography.bodySmall,
+        style = MaterialTheme.typography.bodySmall.copy(
+          fontFamily = ManropeFontFamily,
+          fontSize = 12.sp
+        ),
         color = SummerPrimaryContainer
       )
 
       HorizontalDivider(
-        color = SummerBorderSubtle,
-        modifier = Modifier.padding(vertical = 12.dp)
+        color = SummerBorderSubtle.copy(alpha = 0.5f),
+        modifier = Modifier.padding(vertical = 14.dp)
       )
 
       // Episode Language
       Text(
         text = "EPISODE LANGUAGE",
-        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
-        color = SummerTextSecondary
+        style = MaterialTheme.typography.labelSmall.copy(
+          fontFamily = ManropeFontFamily,
+          fontWeight = FontWeight.Bold,
+          fontSize = 11.sp,
+          letterSpacing = 0.06.sp
+        ),
+        color = SummerOnSurfaceVariant
       )
-      Spacer(modifier = Modifier.height(6.dp))
+      Spacer(modifier = Modifier.height(8.dp))
       Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth()
       ) {
-        PodcastLanguage.entries.forEach { lang ->
+        listOf(PodcastLanguage.ENGLISH to "• English (EN)", PodcastLanguage.SWEDISH to "Svenska (SV)").forEach { (lang, label) ->
           val isSelected = settings.podcastLanguage == lang
           FilterChip(
             selected = isSelected,
             onClick = { onUpdateSettings { it.copy(podcastLanguage = lang) } },
             label = {
               Text(
-                text = lang.displayName,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
+                text = if (isSelected) label else if (lang == PodcastLanguage.ENGLISH) "English (EN)" else "Svenska (SV)",
+                style = MaterialTheme.typography.labelMedium.copy(
+                  fontFamily = ManropeFontFamily,
+                  fontSize = 13.sp,
+                  fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                )
               )
             },
             colors = FilterChipDefaults.filterChipColors(
-              selectedContainerColor = SummerPrimaryContainer.copy(alpha = 0.22f),
+              selectedContainerColor = SummerPrimaryContainer.copy(alpha = 0.2f),
               selectedLabelColor = SummerPrimaryContainer,
-              containerColor = SummerSurfaceDim,
-              labelColor = SummerTextSecondary
+              containerColor = SummerSurfaceContainerHigh.copy(alpha = 0.6f),
+              labelColor = SummerOnSurfaceVariant
             ),
             border = FilterChipDefaults.filterChipBorder(
               enabled = true,
               selected = isSelected,
-              borderColor = if (isSelected) SummerPrimaryContainer else SummerBorderSubtle
-            )
+              borderColor = SummerBorderSubtle,
+              selectedBorderColor = SummerPrimaryContainer.copy(alpha = 0.5f)
+            ),
+            shape = CircleShape
           )
         }
       }
       if (settings.podcastLanguage == PodcastLanguage.SWEDISH) {
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(6.dp))
         Text(
           text = "All saved articles (even English ones) are translated and discussed in natural Swedish.",
-          style = MaterialTheme.typography.bodySmall,
+          style = MaterialTheme.typography.bodySmall.copy(
+            fontFamily = ManropeFontFamily,
+            fontSize = 12.sp
+          ),
           color = SummerPrimaryContainer
         )
       }
 
       HorizontalDivider(
-        color = SummerBorderSubtle,
-        modifier = Modifier.padding(vertical = 12.dp)
+        color = SummerBorderSubtle.copy(alpha = 0.5f),
+        modifier = Modifier.padding(vertical = 14.dp)
       )
 
-      // Host Count
+      // Host Cast
       Text(
-        text = "NUMBER OF HOSTS",
-        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
-        color = SummerTextSecondary
+        text = "HOST CAST",
+        style = MaterialTheme.typography.labelSmall.copy(
+          fontFamily = ManropeFontFamily,
+          fontWeight = FontWeight.Bold,
+          fontSize = 11.sp,
+          letterSpacing = 0.06.sp
+        ),
+        color = SummerOnSurfaceVariant
       )
-      Spacer(modifier = Modifier.height(6.dp))
+      Spacer(modifier = Modifier.height(8.dp))
       Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth()
@@ -3115,36 +3316,50 @@ private fun SettingsTab(
           FilterChip(
             selected = isSelected,
             onClick = { onUpdateSettings { it.copy(podcastHostCount = count) } },
+            leadingIcon = {
+              Icon(
+                imageVector = Icons.Default.Groups,
+                contentDescription = null,
+                tint = if (isSelected) SummerPrimaryContainer else SummerOnSurfaceVariant,
+                modifier = Modifier.size(16.dp)
+              )
+            },
             label = {
               Text(
                 text = label,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
+                style = MaterialTheme.typography.labelMedium.copy(
+                  fontFamily = ManropeFontFamily,
+                  fontSize = 13.sp,
+                  fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                )
               )
             },
             colors = FilterChipDefaults.filterChipColors(
-              selectedContainerColor = SummerPrimaryContainer.copy(alpha = 0.22f),
+              selectedContainerColor = SummerPrimaryContainer.copy(alpha = 0.2f),
               selectedLabelColor = SummerPrimaryContainer,
-              containerColor = SummerSurfaceDim,
-              labelColor = SummerTextSecondary
+              containerColor = SummerSurfaceContainerHigh.copy(alpha = 0.6f),
+              labelColor = SummerOnSurfaceVariant
             ),
             border = FilterChipDefaults.filterChipBorder(
               enabled = true,
               selected = isSelected,
-              borderColor = if (isSelected) SummerPrimaryContainer else SummerBorderSubtle
-            )
+              borderColor = SummerBorderSubtle,
+              selectedBorderColor = SummerPrimaryContainer.copy(alpha = 0.5f)
+            ),
+            shape = CircleShape
           )
         }
       }
 
       HorizontalDivider(
-        color = SummerBorderSubtle,
-        modifier = Modifier.padding(vertical = 12.dp)
+        color = SummerBorderSubtle.copy(alpha = 0.5f),
+        modifier = Modifier.padding(vertical = 14.dp)
       )
 
       // Randomize Host names & voices
       SettingsSwitchRow(
         title = "Randomize host names & voices each episode",
-        subtitle = "Picks contrasting voices and matching ${settings.podcastLanguage.displayName} names automatically for every new episode.",
+        subtitle = "Picks contrasting voices and matching names automatically",
         checked = settings.randomizePodcastHosts,
         onCheckedChange = { enabled ->
           onUpdateSettings { it.copy(randomizePodcastHosts = enabled) }
@@ -3160,8 +3375,10 @@ private fun SettingsTab(
             OutlinedTextField(
               value = settings.hostAName,
               onValueChange = { name -> onUpdateSettings { it.copy(hostAName = name) } },
-              label = { Text("Host 1 Name") },
+              label = { Text("Host 1 Name", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+              textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
               singleLine = true,
+              shape = RoundedCornerShape(12.dp),
               colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = SummerPrimaryContainer,
                 unfocusedBorderColor = SummerBorderSubtle,
@@ -3174,8 +3391,10 @@ private fun SettingsTab(
             OutlinedTextField(
               value = settings.hostBName,
               onValueChange = { name -> onUpdateSettings { it.copy(hostBName = name) } },
-              label = { Text("Host 2 Name") },
+              label = { Text("Host 2 Name", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+              textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
               singleLine = true,
+              shape = RoundedCornerShape(12.dp),
               colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = SummerPrimaryContainer,
                 unfocusedBorderColor = SummerBorderSubtle,
@@ -3191,8 +3410,10 @@ private fun SettingsTab(
             OutlinedTextField(
               value = settings.hostCName,
               onValueChange = { name -> onUpdateSettings { it.copy(hostCName = name) } },
-              label = { Text("Host 3 Name") },
+              label = { Text("Host 3 Name", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+              textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
               singleLine = true,
+              shape = RoundedCornerShape(12.dp),
               colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = SummerPrimaryContainer,
                 unfocusedBorderColor = SummerBorderSubtle,
@@ -3207,25 +3428,49 @@ private fun SettingsTab(
       }
 
       HorizontalDivider(
-        color = SummerBorderSubtle,
-        modifier = Modifier.padding(vertical = 12.dp)
+        color = SummerBorderSubtle.copy(alpha = 0.5f),
+        modifier = Modifier.padding(vertical = 14.dp)
       )
 
       // TTS Providers List
       Text(
-        text = "VOICE SYNTHESIS ENGINE",
-        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
-        color = SummerTextSecondary
+        text = "TTS PROVIDER",
+        style = MaterialTheme.typography.labelSmall.copy(
+          fontFamily = ManropeFontFamily,
+          fontWeight = FontWeight.Bold,
+          fontSize = 11.sp,
+          letterSpacing = 0.06.sp
+        ),
+        color = SummerOnSurfaceVariant
       )
-      Spacer(modifier = Modifier.height(8.dp))
+      Spacer(modifier = Modifier.height(10.dp))
 
-      PodcastTtsProvider.entries.forEach { ttsProvider ->
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SettingsRadioCard(
-          selected = settings.podcastTtsProvider == ttsProvider,
-          title = ttsProvider.displayName,
-          subtitle = ttsProvider.subtitle,
-          onClick = { onUpdateSettings { it.copy(podcastTtsProvider = ttsProvider) } },
-          badgeText = if (ttsProvider == PodcastTtsProvider.GEMINI_MULTISPEAKER) "Recommended" else null
+          selected = settings.podcastTtsProvider == PodcastTtsProvider.GEMINI_MULTISPEAKER,
+          title = "Gemini Multi-Speaker TTS",
+          subtitle = "Native multi-host dialogue via Google AI Studio",
+          badgeText = "FREE TIER",
+          codeTag = "gemini-3.8-flash-tts",
+          onClick = { onUpdateSettings { it.copy(podcastTtsProvider = PodcastTtsProvider.GEMINI_MULTISPEAKER) } }
+        )
+        SettingsRadioCard(
+          selected = settings.podcastTtsProvider == PodcastTtsProvider.ANDROID_ON_DEVICE,
+          title = "Android On-Device Multi-Voice TTS",
+          subtitle = "100% free & offline system voices",
+          onClick = { onUpdateSettings { it.copy(podcastTtsProvider = PodcastTtsProvider.ANDROID_ON_DEVICE) } }
+        )
+        SettingsRadioCard(
+          selected = settings.podcastTtsProvider == PodcastTtsProvider.AZURE_SPEECH,
+          title = "Microsoft Azure AI Speech",
+          subtitle = "500k free neural chars/month",
+          onClick = { onUpdateSettings { it.copy(podcastTtsProvider = PodcastTtsProvider.AZURE_SPEECH) } }
+        )
+        SettingsRadioCard(
+          selected = settings.podcastTtsProvider == PodcastTtsProvider.ELEVENLABS,
+          title = "ElevenLabs Neural TTS",
+          subtitle = "Ultra-realistic voices",
+          onClick = { onUpdateSettings { it.copy(podcastTtsProvider = PodcastTtsProvider.ELEVENLABS) } }
         )
       }
 
@@ -3261,14 +3506,22 @@ private fun SettingsTab(
 
           Text(
             text = "Gemini Multi-Speaker TTS (Free via Google AI Studio)",
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = SummerTextPrimary
+            style = MaterialTheme.typography.bodyLarge.copy(
+              fontFamily = ManropeFontFamily,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 14.sp
+            ),
+            color = SummerOnSurface
           )
           Spacer(modifier = Modifier.height(4.dp))
           Text(
             text = "Uses Google's native multiSpeakerVoiceConfig across all 30 official Gemini studio voices in English and Swedish.",
-            style = MaterialTheme.typography.bodySmall,
-            color = SummerTextSecondary
+            style = MaterialTheme.typography.bodySmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontSize = 12.sp,
+              lineHeight = 17.sp
+            ),
+            color = SummerOnSurfaceVariant
           )
           Spacer(modifier = Modifier.height(10.dp))
           OutlinedTextField(
@@ -3276,9 +3529,11 @@ private fun SettingsTab(
             onValueChange = { value ->
               onUpdateSettings { it.copy(directGeminiApiKey = value) }
             },
-            label = { Text("Google AI Studio API Key") },
-            placeholder = { Text("AIzaSy...") },
+            label = { Text("Google AI Studio API Key", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+            placeholder = { Text("AIzaSy...", fontFamily = ManropeFontFamily, fontSize = 13.sp) },
+            textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = SummerPrimaryContainer,
               unfocusedBorderColor = SummerBorderSubtle,
@@ -3359,23 +3614,44 @@ private fun SettingsTab(
             },
             modifier = Modifier.fillMaxWidth()
           )
-          Spacer(modifier = Modifier.height(12.dp))
-          FilledTonalButton(
+          Spacer(modifier = Modifier.height(14.dp))
+          Button(
             enabled = !verification.isVerifyingTts,
             onClick = onVerifyGeminiTts,
-            colors = ButtonDefaults.filledTonalButtonColors(
-              containerColor = SummerPrimaryContainer.copy(alpha = 0.2f),
-              contentColor = SummerPrimaryContainer
-            )
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(
+              containerColor = SummerPrimaryContainer,
+              contentColor = SummerOnPrimaryContainer
+            ),
+            modifier = Modifier
+              .fillMaxWidth()
+              .height(44.dp)
           ) {
             if (verification.isVerifyingTts) {
-              CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = SummerPrimaryContainer)
+              CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = SummerOnPrimaryContainer)
               Spacer(Modifier.width(8.dp))
-              Text("Testing Multi-Speaker TTS...", color = SummerPrimaryContainer)
+              Text(
+                "Testing Multi-Speaker TTS...",
+                color = SummerOnPrimaryContainer,
+                fontFamily = ManropeFontFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+              )
             } else {
-              Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp), tint = SummerPrimaryContainer)
-              Spacer(Modifier.width(6.dp))
-              Text("Verify Multi-Speaker TTS", color = SummerPrimaryContainer)
+              Icon(
+                Icons.Default.AutoAwesome,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = SummerOnPrimaryContainer
+              )
+              Spacer(Modifier.width(8.dp))
+              Text(
+                "Verify Multi-Speaker TTS",
+                color = SummerOnPrimaryContainer,
+                fontFamily = ManropeFontFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+              )
             }
           }
           verification.ttsMessage?.let { msg ->
@@ -3394,21 +3670,31 @@ private fun SettingsTab(
         PodcastTtsProvider.AZURE_SPEECH -> {
           Text(
             text = "Microsoft Azure AI Speech (500,000 Free Neural Chars/Month)",
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = SummerTextPrimary
+            style = MaterialTheme.typography.bodyLarge.copy(
+              fontFamily = ManropeFontFamily,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 14.sp
+            ),
+            color = SummerOnSurface
           )
           Spacer(modifier = Modifier.height(4.dp))
           Text(
             text = "Azure Speech F0 tier offers 500,000 free neural characters every month perpetually and supports multi-voice SSML in English and Swedish.",
-            style = MaterialTheme.typography.bodySmall,
-            color = SummerTextSecondary
+            style = MaterialTheme.typography.bodySmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontSize = 12.sp,
+              lineHeight = 17.sp
+            ),
+            color = SummerOnSurfaceVariant
           )
           Spacer(modifier = Modifier.height(10.dp))
           OutlinedTextField(
             value = settings.azureSpeechKey,
             onValueChange = { v -> onUpdateSettings { it.copy(azureSpeechKey = v) } },
-            label = { Text("Azure Speech Subscription Key") },
+            label = { Text("Azure Speech Subscription Key", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+            textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = SummerPrimaryContainer,
               unfocusedBorderColor = SummerBorderSubtle,
@@ -3436,8 +3722,10 @@ private fun SettingsTab(
           OutlinedTextField(
             value = settings.azureSpeechRegion,
             onValueChange = { v -> onUpdateSettings { it.copy(azureSpeechRegion = v) } },
-            label = { Text("Azure Region (e.g. eastus, westeurope, swedencentral)") },
+            label = { Text("Azure Region (e.g. eastus, westeurope, swedencentral)", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+            textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = SummerPrimaryContainer,
               unfocusedBorderColor = SummerBorderSubtle,
@@ -3456,8 +3744,10 @@ private fun SettingsTab(
               OutlinedTextField(
                 value = settings.azureHostAVoice,
                 onValueChange = { v -> onUpdateSettings { it.copy(azureHostAVoice = v) } },
-                label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Neural Voice") },
+                label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Neural Voice", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+                textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                   focusedBorderColor = SummerPrimaryContainer,
                   unfocusedBorderColor = SummerBorderSubtle,
@@ -3470,8 +3760,10 @@ private fun SettingsTab(
               OutlinedTextField(
                 value = settings.azureHostBVoice,
                 onValueChange = { v -> onUpdateSettings { it.copy(azureHostBVoice = v) } },
-                label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Neural Voice") },
+                label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Neural Voice", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+                textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                   focusedBorderColor = SummerPrimaryContainer,
                   unfocusedBorderColor = SummerBorderSubtle,
@@ -3487,8 +3779,10 @@ private fun SettingsTab(
               OutlinedTextField(
                 value = settings.azureHostCVoice,
                 onValueChange = { v -> onUpdateSettings { it.copy(azureHostCVoice = v) } },
-                label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Neural Voice") },
+                label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Neural Voice", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+                textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                   focusedBorderColor = SummerPrimaryContainer,
                   unfocusedBorderColor = SummerBorderSubtle,
@@ -3505,21 +3799,31 @@ private fun SettingsTab(
         PodcastTtsProvider.ELEVENLABS -> {
           Text(
             text = "ElevenLabs Neural TTS",
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = SummerTextPrimary
+            style = MaterialTheme.typography.bodyLarge.copy(
+              fontFamily = ManropeFontFamily,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 14.sp
+            ),
+            color = SummerOnSurface
           )
           Spacer(modifier = Modifier.height(4.dp))
           Text(
             text = "Create a free account at elevenlabs.io (~10,000 free credits/month). Uses eleven_flash_v2_5 by default for fast multilingual synthesis.",
-            style = MaterialTheme.typography.bodySmall,
-            color = SummerTextSecondary
+            style = MaterialTheme.typography.bodySmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontSize = 12.sp,
+              lineHeight = 17.sp
+            ),
+            color = SummerOnSurfaceVariant
           )
           Spacer(modifier = Modifier.height(10.dp))
           OutlinedTextField(
             value = settings.elevenLabsApiKey,
             onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsApiKey = v) } },
-            label = { Text("ElevenLabs API Key (xi-api-key)") },
+            label = { Text("ElevenLabs API Key (xi-api-key)", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+            textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = SummerPrimaryContainer,
               unfocusedBorderColor = SummerBorderSubtle,
@@ -3552,8 +3856,10 @@ private fun SettingsTab(
               OutlinedTextField(
                 value = settings.elevenLabsHostAVoiceId,
                 onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostAVoiceId = v) } },
-                label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Voice ID") },
+                label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Voice ID", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+                textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                   focusedBorderColor = SummerPrimaryContainer,
                   unfocusedBorderColor = SummerBorderSubtle,
@@ -3566,8 +3872,10 @@ private fun SettingsTab(
               OutlinedTextField(
                 value = settings.elevenLabsHostBVoiceId,
                 onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostBVoiceId = v) } },
-                label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Voice ID") },
+                label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Voice ID", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+                textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                   focusedBorderColor = SummerPrimaryContainer,
                   unfocusedBorderColor = SummerBorderSubtle,
@@ -3583,8 +3891,10 @@ private fun SettingsTab(
               OutlinedTextField(
                 value = settings.elevenLabsHostCVoiceId,
                 onValueChange = { v -> onUpdateSettings { it.copy(elevenLabsHostCVoiceId = v) } },
-                label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Voice ID") },
+                label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Voice ID", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+                textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                   focusedBorderColor = SummerPrimaryContainer,
                   unfocusedBorderColor = SummerBorderSubtle,
@@ -3601,22 +3911,32 @@ private fun SettingsTab(
         PodcastTtsProvider.OPENAI_COMPATIBLE_TTS -> {
           Text(
             text = "OpenAI / Kokoro / Custom /v1/audio/speech",
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = SummerTextPrimary
+            style = MaterialTheme.typography.bodyLarge.copy(
+              fontFamily = ManropeFontFamily,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 14.sp
+            ),
+            color = SummerOnSurface
           )
           Spacer(modifier = Modifier.height(4.dp))
           Text(
             text = "Supports OpenAI Audio (gpt-4o-mini-tts / tts-1 with voices like onyx, nova, shimmer) or free self-hosted Kokoro-FastAPI / Groq endpoints.",
-            style = MaterialTheme.typography.bodySmall,
-            color = SummerTextSecondary
+            style = MaterialTheme.typography.bodySmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontSize = 12.sp,
+              lineHeight = 17.sp
+            ),
+            color = SummerOnSurfaceVariant
           )
           Spacer(modifier = Modifier.height(10.dp))
           OutlinedTextField(
             value = settings.openAiTtsBaseUrl,
             onValueChange = { v -> onUpdateSettings { it.copy(openAiTtsBaseUrl = v) } },
-            label = { Text("TTS Base URL") },
-            placeholder = { Text("https://api.openai.com/v1") },
+            label = { Text("TTS Base URL", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+            placeholder = { Text("https://api.openai.com/v1", fontFamily = ManropeFontFamily, fontSize = 13.sp) },
+            textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = SummerPrimaryContainer,
               unfocusedBorderColor = SummerBorderSubtle,
@@ -3630,8 +3950,10 @@ private fun SettingsTab(
           OutlinedTextField(
             value = settings.openAiTtsApiKey,
             onValueChange = { v -> onUpdateSettings { it.copy(openAiTtsApiKey = v) } },
-            label = { Text("TTS API Key (leave blank to reuse OpenAI Chat key)") },
+            label = { Text("TTS API Key (leave blank to reuse OpenAI Chat key)", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+            textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = SummerPrimaryContainer,
               unfocusedBorderColor = SummerBorderSubtle,
@@ -3659,9 +3981,11 @@ private fun SettingsTab(
           OutlinedTextField(
             value = settings.openAiTtsModel,
             onValueChange = { v -> onUpdateSettings { it.copy(openAiTtsModel = v) } },
-            label = { Text("TTS Model") },
-            placeholder = { Text("gpt-4o-mini-tts / tts-1 / kokoro") },
+            label = { Text("TTS Model", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+            placeholder = { Text("gpt-4o-mini-tts / tts-1 / kokoro", fontFamily = ManropeFontFamily, fontSize = 13.sp) },
+            textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = SummerPrimaryContainer,
               unfocusedBorderColor = SummerBorderSubtle,
@@ -3680,9 +4004,11 @@ private fun SettingsTab(
               OutlinedTextField(
                 value = settings.openAiHostAVoice,
                 onValueChange = { v -> onUpdateSettings { it.copy(openAiHostAVoice = v) } },
-                label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Voice") },
-                placeholder = { Text("onyx") },
+                label = { Text("${settings.hostAName.ifBlank { "Host 1" }} Voice", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+                placeholder = { Text("onyx", fontFamily = ManropeFontFamily, fontSize = 13.sp) },
+                textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                   focusedBorderColor = SummerPrimaryContainer,
                   unfocusedBorderColor = SummerBorderSubtle,
@@ -3695,9 +4021,11 @@ private fun SettingsTab(
               OutlinedTextField(
                 value = settings.openAiHostBVoice,
                 onValueChange = { v -> onUpdateSettings { it.copy(openAiHostBVoice = v) } },
-                label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Voice") },
-                placeholder = { Text("nova") },
+                label = { Text("${settings.hostBName.ifBlank { "Host 2" }} Voice", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+                placeholder = { Text("nova", fontFamily = ManropeFontFamily, fontSize = 13.sp) },
+                textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                   focusedBorderColor = SummerPrimaryContainer,
                   unfocusedBorderColor = SummerBorderSubtle,
@@ -3713,9 +4041,11 @@ private fun SettingsTab(
               OutlinedTextField(
                 value = settings.openAiHostCVoice,
                 onValueChange = { v -> onUpdateSettings { it.copy(openAiHostCVoice = v) } },
-                label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Voice") },
-                placeholder = { Text("shimmer") },
+                label = { Text("${settings.hostCName.ifBlank { "Host 3" }} Voice", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+                placeholder = { Text("shimmer", fontFamily = ManropeFontFamily, fontSize = 13.sp) },
+                textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                   focusedBorderColor = SummerPrimaryContainer,
                   unfocusedBorderColor = SummerBorderSubtle,
@@ -3736,22 +4066,42 @@ private fun SettingsTab(
     // -------------------------------------------------------------
     SettingsSectionCard(
       title = "AI Intelligence Backend",
-      subtitle = "Choose which AI backend Summer uses to summarize saved websites and write podcast scripts.",
+      subtitle = "Model used to parse HTML and author multi-speaker dialogue",
       icon = Icons.Default.Psychology
     ) {
-      AiBackend.entries.forEach { backend ->
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SettingsRadioCard(
-          selected = settings.selectedBackend == backend,
-          title = backend.displayName,
-          subtitle = backend.subtitle,
-          onClick = { onUpdateSettings { it.copy(selectedBackend = backend) } },
-          badgeText = if (backend == AiBackend.FIREBASE_AI) "Default" else null
+          selected = settings.selectedBackend == AiBackend.FIREBASE_AI,
+          title = "Firebase AI Logic",
+          subtitle = "Connected via app project",
+          badgeText = "gemini-3.8-flash",
+          onClick = { onUpdateSettings { it.copy(selectedBackend = AiBackend.FIREBASE_AI) } }
+        )
+        SettingsRadioCard(
+          selected = settings.selectedBackend == AiBackend.DIRECT_GEMINI,
+          title = "Direct Gemini API",
+          subtitle = "Custom key with full rate limits",
+          badgeText = "BYOK",
+          onClick = { onUpdateSettings { it.copy(selectedBackend = AiBackend.DIRECT_GEMINI) } }
+        )
+        SettingsRadioCard(
+          selected = settings.selectedBackend == AiBackend.GEMINI_NANO_ON_DEVICE,
+          title = "On-Device Gemini Nano",
+          subtitle = "Offline private processing",
+          badgeText = "AICore NPU",
+          onClick = { onUpdateSettings { it.copy(selectedBackend = AiBackend.GEMINI_NANO_ON_DEVICE) } }
+        )
+        SettingsRadioCard(
+          selected = settings.selectedBackend == AiBackend.OPENAI_COMPATIBLE,
+          title = "OpenAI / Anthropic Compatible",
+          subtitle = "Custom endpoints for Claude 3.5 & GPT-4o",
+          onClick = { onUpdateSettings { it.copy(selectedBackend = AiBackend.OPENAI_COMPATIBLE) } }
         )
       }
 
       HorizontalDivider(
-        color = SummerBorderSubtle,
-        modifier = Modifier.padding(vertical = 12.dp)
+        color = SummerBorderSubtle.copy(alpha = 0.5f),
+        modifier = Modifier.padding(vertical = 14.dp)
       )
 
       // Provider-specific Configuration Fields
@@ -3759,13 +4109,20 @@ private fun SettingsTab(
         AiBackend.FIREBASE_AI -> {
           Text(
             text = "Firebase AI Logic Configuration",
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = SummerTextPrimary
+            style = MaterialTheme.typography.bodyLarge.copy(
+              fontFamily = ManropeFontFamily,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 14.sp
+            ),
+            color = SummerOnSurface
           )
           Spacer(modifier = Modifier.height(4.dp))
           Text(
             text = "Connected to Firebase AI Logic (via app/google-services.json).",
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodySmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontSize = 12.sp
+            ),
             color = SummerPrimaryContainer
           )
           Spacer(modifier = Modifier.height(10.dp))
@@ -3787,9 +4144,11 @@ private fun SettingsTab(
             onValueChange = { value ->
               onUpdateSettings { it.copy(firebaseModel = value) }
             },
-            label = { Text("Gemini Model ID (or enter custom)") },
-            supportingText = { Text("Recommended: gemini-3.8-flash") },
+            label = { Text("Gemini Model ID (or enter custom)", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+            supportingText = { Text("Recommended: gemini-3.8-flash", fontFamily = ManropeFontFamily, fontSize = 11.sp) },
+            textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = SummerPrimaryContainer,
               unfocusedBorderColor = SummerBorderSubtle,
@@ -3804,8 +4163,12 @@ private fun SettingsTab(
         AiBackend.DIRECT_GEMINI -> {
           Text(
             text = "Direct Gemini API (Google AI Studio)",
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = SummerTextPrimary
+            style = MaterialTheme.typography.bodyLarge.copy(
+              fontFamily = ManropeFontFamily,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 14.sp
+            ),
+            color = SummerOnSurface
           )
           Spacer(modifier = Modifier.height(10.dp))
           OutlinedTextField(
@@ -3813,9 +4176,11 @@ private fun SettingsTab(
             onValueChange = { value ->
               onUpdateSettings { it.copy(directGeminiApiKey = value) }
             },
-            label = { Text("Google AI Studio API Key") },
-            placeholder = { Text("AIzaSy...") },
+            label = { Text("Google AI Studio API Key", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+            placeholder = { Text("AIzaSy...", fontFamily = ManropeFontFamily, fontSize = 13.sp) },
+            textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = SummerPrimaryContainer,
               unfocusedBorderColor = SummerBorderSubtle,
@@ -3858,8 +4223,10 @@ private fun SettingsTab(
             onValueChange = { value ->
               onUpdateSettings { it.copy(directGeminiModel = value) }
             },
-            label = { Text("Gemini Model ID (or enter custom)") },
+            label = { Text("Gemini Model ID (or enter custom)", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+            textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = SummerPrimaryContainer,
               unfocusedBorderColor = SummerBorderSubtle,
@@ -3874,22 +4241,34 @@ private fun SettingsTab(
         AiBackend.GEMINI_NANO_ON_DEVICE -> {
           Text(
             text = "On-Device Gemini Nano (Android AICore)",
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = SummerTextPrimary
+            style = MaterialTheme.typography.bodyLarge.copy(
+              fontFamily = ManropeFontFamily,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 14.sp
+            ),
+            color = SummerOnSurface
           )
           Spacer(modifier = Modifier.height(4.dp))
           Text(
             text = "Runs 100% locally on your phone via Google AI Edge AICore SDK. Requires a compatible flagship device (e.g., Pixel 8/9/10 series or Galaxy S24/S25+) with AICore enabled in system settings.",
-            style = MaterialTheme.typography.bodySmall,
-            color = SummerTextSecondary
+            style = MaterialTheme.typography.bodySmall.copy(
+              fontFamily = ManropeFontFamily,
+              fontSize = 12.sp,
+              lineHeight = 17.sp
+            ),
+            color = SummerOnSurfaceVariant
           )
         }
 
         AiBackend.OPENAI_COMPATIBLE -> {
           Text(
             text = "OpenAI / Anthropic / Custom Endpoint",
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = SummerTextPrimary
+            style = MaterialTheme.typography.bodyLarge.copy(
+              fontFamily = ManropeFontFamily,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 14.sp
+            ),
+            color = SummerOnSurface
           )
           Spacer(modifier = Modifier.height(10.dp))
           OutlinedTextField(
@@ -3897,9 +4276,11 @@ private fun SettingsTab(
             onValueChange = { value ->
               onUpdateSettings { it.copy(openAiBaseUrl = value) }
             },
-            label = { Text("Base URL") },
-            placeholder = { Text("https://api.openai.com/v1") },
+            label = { Text("Base URL", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+            placeholder = { Text("https://api.openai.com/v1", fontFamily = ManropeFontFamily, fontSize = 13.sp) },
+            textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = SummerPrimaryContainer,
               unfocusedBorderColor = SummerBorderSubtle,
@@ -3915,9 +4296,11 @@ private fun SettingsTab(
             onValueChange = { value ->
               onUpdateSettings { it.copy(openAiApiKey = value) }
             },
-            label = { Text("API Key") },
-            placeholder = { Text("sk-...") },
+            label = { Text("API Key", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+            placeholder = { Text("sk-...", fontFamily = ManropeFontFamily, fontSize = 13.sp) },
+            textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = SummerPrimaryContainer,
               unfocusedBorderColor = SummerBorderSubtle,
@@ -3947,9 +4330,11 @@ private fun SettingsTab(
             onValueChange = { value ->
               onUpdateSettings { it.copy(openAiModel = value) }
             },
-            label = { Text("Model Name") },
-            placeholder = { Text("gpt-4o-mini / claude-3-5-haiku-latest") },
+            label = { Text("Model Name", fontFamily = ManropeFontFamily, fontSize = 12.sp) },
+            placeholder = { Text("gpt-4o-mini / claude-3-5-haiku-latest", fontFamily = ManropeFontFamily, fontSize = 13.sp) },
+            textStyle = TextStyle(fontFamily = ManropeFontFamily, fontSize = 13.sp, color = SummerOnSurface),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = SummerPrimaryContainer,
               unfocusedBorderColor = SummerBorderSubtle,
@@ -3962,23 +4347,44 @@ private fun SettingsTab(
         }
       }
 
-      Spacer(modifier = Modifier.height(12.dp))
-      FilledTonalButton(
+      Spacer(modifier = Modifier.height(14.dp))
+      Button(
         enabled = !verification.isVerifyingBackend,
         onClick = onVerifyTextBackend,
-        colors = ButtonDefaults.filledTonalButtonColors(
-          containerColor = SummerPrimaryContainer.copy(alpha = 0.2f),
-          contentColor = SummerPrimaryContainer
-        )
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.buttonColors(
+          containerColor = SummerPrimaryContainer,
+          contentColor = SummerOnPrimaryContainer
+        ),
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(44.dp)
       ) {
         if (verification.isVerifyingBackend) {
-          CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = SummerPrimaryContainer)
+          CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = SummerOnPrimaryContainer)
           Spacer(Modifier.width(8.dp))
-          Text("Testing Model...", color = SummerPrimaryContainer)
+          Text(
+            "Testing Model...",
+            color = SummerOnPrimaryContainer,
+            fontFamily = ManropeFontFamily,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold
+          )
         } else {
-          Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp), tint = SummerPrimaryContainer)
-          Spacer(Modifier.width(6.dp))
-          Text("Verify Summarization Model", color = SummerPrimaryContainer)
+          Icon(
+            Icons.Default.CheckCircle,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = SummerOnPrimaryContainer
+          )
+          Spacer(Modifier.width(8.dp))
+          Text(
+            "Verify Summarization Model",
+            color = SummerOnPrimaryContainer,
+            fontFamily = ManropeFontFamily,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold
+          )
         }
       }
       verification.backendMessage?.let { msg ->
@@ -3992,12 +4398,12 @@ private fun SettingsTab(
     // -------------------------------------------------------------
     SettingsSectionCard(
       title = "Google Feed & Browser Capture",
-      subtitle = "Control automatic link interception and external browser launching.",
+      subtitle = "Manage link interception and external reading tabs",
       icon = Icons.Default.Public
     ) {
       SettingsSwitchRow(
         title = "Only Intercept Google Feed URLs",
-        subtitle = "When enabled, Summer only saves links coming from the Google Feed (via search.app/share.google shorteners, Discover tracking params, or Google App referrers). All other links pass through to your browser.",
+        subtitle = "Ignores routine searches, intercepts long-form articles",
         checked = settings.onlyInterceptGoogleFeed,
         onCheckedChange = { checked ->
           onUpdateSettings { it.copy(onlyInterceptGoogleFeed = checked) }
@@ -4005,13 +4411,13 @@ private fun SettingsTab(
       )
 
       HorizontalDivider(
-        color = SummerBorderSubtle,
+        color = SummerBorderSubtle.copy(alpha = 0.5f),
         modifier = Modifier.padding(vertical = 12.dp)
       )
 
       SettingsSwitchRow(
         title = "Use Custom Tabs overlay",
-        subtitle = "When off (default), opens full standalone browser app. When on, opens in an in-app browser tab.",
+        subtitle = "When disabled, links open directly in your chosen browser",
         checked = settings.useCustomTabs,
         onCheckedChange = { checked ->
           onUpdateSettings { it.copy(useCustomTabs = checked) }
@@ -4019,13 +4425,13 @@ private fun SettingsTab(
       )
 
       HorizontalDivider(
-        color = SummerBorderSubtle,
+        color = SummerBorderSubtle.copy(alpha = 0.5f),
         modifier = Modifier.padding(vertical = 12.dp)
       )
 
       SettingsSwitchRow(
         title = "Don't save when opened from notification",
-        subtitle = "When enabled, tapping the quick-save notification to open the link in your browser automatically removes it from Summer.",
+        subtitle = "Skips automatic queueing when tapping preview cards",
         checked = settings.removeWhenOpenedFromNotification,
         onCheckedChange = { checked ->
           onUpdateSettings { it.copy(removeWhenOpenedFromNotification = checked) }
@@ -4033,93 +4439,80 @@ private fun SettingsTab(
       )
 
       HorizontalDivider(
-        color = SummerBorderSubtle,
-        modifier = Modifier.padding(vertical = 12.dp)
+        color = SummerBorderSubtle.copy(alpha = 0.5f),
+        modifier = Modifier.padding(vertical = 14.dp)
       )
 
       Text(
-        text = "TARGET BROWSER APP",
-        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
-        color = SummerTextSecondary
+        text = "TARGET EXTERNAL BROWSER",
+        style = MaterialTheme.typography.labelSmall.copy(
+          fontFamily = ManropeFontFamily,
+          fontWeight = FontWeight.Bold,
+          fontSize = 11.sp,
+          letterSpacing = 0.06.sp
+        ),
+        color = SummerOnSurfaceVariant
       )
-      Spacer(modifier = Modifier.height(8.dp))
+      Spacer(modifier = Modifier.height(10.dp))
 
-      // Auto-detect browser option
-      Surface(
-        color = if (settings.preferredBrowserPackage.isBlank()) SummerPrimaryContainer.copy(alpha = 0.08f) else SummerSurfaceDim,
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, if (settings.preferredBrowserPackage.isBlank()) SummerPrimaryContainer else SummerBorderSubtle),
-        modifier = Modifier
-          .fillMaxWidth()
-          .clickable { onUpdateSettings { it.copy(preferredBrowserPackage = "") } }
-      ) {
-        Row(
-          modifier = Modifier.padding(14.dp),
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          RadioButton(
-            selected = settings.preferredBrowserPackage.isBlank(),
-            onClick = { onUpdateSettings { it.copy(preferredBrowserPackage = "") } },
-            colors = RadioButtonDefaults.colors(
-              selectedColor = SummerPrimaryContainer,
-              unselectedColor = SummerTextSecondary
-            )
-          )
-          Spacer(modifier = Modifier.width(10.dp))
-          Column {
-            Text(
-              text = "Auto-detect External Browser",
-              style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-              color = SummerTextPrimary
-            )
-            Text(
-              text = "Chrome preferred if installed, otherwise default system handler",
-              style = MaterialTheme.typography.bodySmall,
-              color = SummerTextSecondary
-            )
-          }
-        }
+      val allBrowserOptions = remember(installedBrowsers) {
+        listOf(ExternalBrowserOption(packageName = "", label = "System Default")) + installedBrowsers
       }
 
-      installedBrowsers.forEach { browser ->
-        val isSelected = settings.preferredBrowserPackage == browser.packageName
-        Spacer(modifier = Modifier.height(8.dp))
-        Surface(
-          color = if (isSelected) SummerPrimaryContainer.copy(alpha = 0.08f) else SummerSurfaceDim,
-          shape = RoundedCornerShape(12.dp),
-          border = BorderStroke(1.dp, if (isSelected) SummerPrimaryContainer else SummerBorderSubtle),
-          modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-              onUpdateSettings { it.copy(preferredBrowserPackage = browser.packageName) }
-            }
-        ) {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        allBrowserOptions.chunked(2).forEach { rowOptions ->
           Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
           ) {
-            RadioButton(
-              selected = isSelected,
-              onClick = {
-                onUpdateSettings { it.copy(preferredBrowserPackage = browser.packageName) }
-              },
-              colors = RadioButtonDefaults.colors(
-                selectedColor = SummerPrimaryContainer,
-                unselectedColor = SummerTextSecondary
-              )
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column {
-              Text(
-                text = browser.label,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = SummerTextPrimary
-              )
-              Text(
-                text = browser.packageName,
-                style = MaterialTheme.typography.labelSmall,
-                color = SummerTextSecondary
-              )
+            rowOptions.forEach { option ->
+              val isSelected = settings.preferredBrowserPackage == option.packageName
+              Surface(
+                onClick = { onUpdateSettings { it.copy(preferredBrowserPackage = option.packageName) } },
+                shape = RoundedCornerShape(12.dp),
+                color = if (isSelected) SummerPrimaryContainer.copy(alpha = 0.12f) else SummerSurfaceDim,
+                border = BorderStroke(
+                  width = if (isSelected) 1.5.dp else 1.dp,
+                  color = if (isSelected) SummerPrimaryContainer else SummerBorderSubtle
+                ),
+                modifier = Modifier
+                  .weight(1f)
+                  .height(46.dp)
+              ) {
+                Row(
+                  modifier = Modifier.padding(horizontal = 12.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.Center
+                ) {
+                  Icon(
+                    imageVector = when {
+                      option.packageName.isEmpty() -> Icons.Outlined.OpenInBrowser
+                      option.label.contains("Chrome", ignoreCase = true) -> Icons.Outlined.Public
+                      option.label.contains("Firefox", ignoreCase = true) -> Icons.Outlined.LocalFireDepartment
+                      option.label.contains("Brave", ignoreCase = true) -> Icons.Outlined.Shield
+                      else -> Icons.Outlined.Language
+                    },
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = if (isSelected) SummerPrimary else SummerOnSurfaceVariant
+                  )
+                  Spacer(modifier = Modifier.width(8.dp))
+                  Text(
+                    text = option.label,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                      fontFamily = ManropeFontFamily,
+                      fontSize = 13.sp,
+                      fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                    ),
+                    color = if (isSelected) SummerPrimary else SummerOnSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                  )
+                }
+              }
+            }
+            if (rowOptions.size == 1) {
+              Spacer(modifier = Modifier.weight(1f))
             }
           }
         }
@@ -4132,287 +4525,194 @@ private fun SettingsTab(
     Column(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(vertical = 12.dp),
+        .padding(top = 16.dp, bottom = 32.dp),
       horizontalAlignment = Alignment.CenterHorizontally
     ) {
       Text(
-        text = "Summer v2.4 • Literary AI Companion",
+        text = "Summer v2.4.1 (Build 412) · Engine: gemini-3.8-flash-tts",
         style = MaterialTheme.typography.labelSmall.copy(
           fontFamily = FontFamily.Monospace,
-          letterSpacing = 1.sp
+          fontSize = 11.sp,
+          letterSpacing = 0.6.sp
         ),
-        color = SummerTextSecondary.copy(alpha = 0.7f)
-      )
-      Spacer(modifier = Modifier.height(4.dp))
-      Text(
-        text = "Intelligence: ${settings.selectedBackend.displayName} • TTS: ${settings.podcastTtsProvider.displayName}",
-        style = MaterialTheme.typography.labelSmall.copy(
-          fontFamily = FontFamily.Monospace,
-          letterSpacing = 0.5.sp
-        ),
-        color = SummerPrimaryContainer.copy(alpha = 0.85f)
+        color = SummerTextSecondary.copy(alpha = 0.6f)
       )
     }
   }
 }
 
 @Composable
-private fun AddLinkDialog(
+internal fun AddLinkDialog(
   onDismiss: () -> Unit,
   onAddUrl: (String) -> Unit
 ) {
-  var urlInput by rememberSaveable { mutableStateOf("") }
-  var autoGenerateDigest by rememberSaveable { mutableStateOf(true) }
-  var prioritizeNextPodcast by rememberSaveable { mutableStateOf(true) }
-
   Dialog(
     onDismissRequest = onDismiss,
     properties = DialogProperties(usePlatformDefaultWidth = false)
   ) {
-    Surface(
-      color = SummerSurfaceContainer,
-      shape = RoundedCornerShape(20.dp),
-      border = BorderStroke(1.dp, SummerPrimaryContainer.copy(alpha = 0.35f)),
+    AddLinkDialogContent(
+      onDismiss = onDismiss,
+      onAddUrl = onAddUrl
+    )
+  }
+}
+
+@Composable
+internal fun AddLinkDialogContent(
+  onDismiss: () -> Unit,
+  onAddUrl: (String) -> Unit,
+  modifier: Modifier = Modifier
+) {
+  var urlInput by rememberSaveable { mutableStateOf("") }
+  val clipboardManager = LocalClipboardManager.current
+
+  Surface(
+    color = SummerSurfaceContainer,
+    shape = RoundedCornerShape(20.dp),
+    border = BorderStroke(1.dp, SummerBorderSubtle),
+    modifier = modifier
+      .fillMaxWidth()
+      .padding(horizontal = 28.dp)
+      .wrapContentHeight()
+  ) {
+    Column(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(horizontal = 24.dp)
-        .wrapContentHeight()
+        .padding(
+          start = 24.dp,
+          end = 24.dp,
+          top = 28.dp,
+          bottom = 22.dp
+        )
     ) {
-      Column(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(20.dp)
+      // Header Row
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
       ) {
-        // Header Row
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          verticalAlignment = Alignment.CenterVertically
+        Icon(
+          imageVector = Icons.Default.AddLink,
+          contentDescription = null,
+          tint = SummerPrimary,
+          modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+          text = "Add link",
+          style = MaterialTheme.typography.titleMedium.copy(
+            fontFamily = NewsreaderFontFamily,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Medium
+          ),
+          color = SummerOnSurface,
+          modifier = Modifier.weight(1f)
+        )
+        IconButton(
+          onClick = {
+            val clipText = clipboardManager.getText()?.text?.trim()
+            if (!clipText.isNullOrBlank()) {
+              urlInput = clipText
+            }
+          },
+          modifier = Modifier.size(32.dp)
         ) {
           Icon(
-            imageVector = Icons.Default.AddLink,
-            contentDescription = null,
+            imageVector = Icons.Default.ContentPaste,
+            contentDescription = "Paste from clipboard",
             tint = SummerPrimary,
-            modifier = Modifier.size(22.dp)
+            modifier = Modifier.size(20.dp)
           )
-          Spacer(modifier = Modifier.width(10.dp))
-          Text(
-            text = "Add Article or Link",
-            style = MaterialTheme.typography.titleMedium.copy(
-              fontFamily = NewsreaderFontFamily,
-              fontSize = 20.sp,
-              fontWeight = FontWeight.Medium
-            ),
-            color = SummerOnSurface,
-            modifier = Modifier.weight(1f)
+        }
+      }
+
+      Spacer(modifier = Modifier.height(18.dp))
+
+      // Input Field
+      OutlinedTextField(
+        value = urlInput,
+        onValueChange = { urlInput = it },
+        leadingIcon = {
+          Icon(
+            imageVector = Icons.Default.Link,
+            contentDescription = null,
+            tint = SummerOutline,
+            modifier = Modifier.size(18.dp)
           )
-          IconButton(
-            onClick = onDismiss,
-            modifier = Modifier.size(32.dp)
-          ) {
-            Icon(
-              imageVector = Icons.Default.Close,
-              contentDescription = "Close dialog",
-              tint = SummerOutline,
-              modifier = Modifier.size(18.dp)
-            )
-          }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Input Field
-        Text(
-          text = "URL OR WEB FEED",
-          style = MaterialTheme.typography.labelSmall.copy(
-            fontFamily = ManropeFontFamily,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.06.sp
-          ),
-          color = SummerOnSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        OutlinedTextField(
-          value = urlInput,
-          onValueChange = { urlInput = it },
-          placeholder = {
-            Text(
-              text = "Paste URL (e.g. https://...)",
-              color = SummerOutline.copy(alpha = 0.6f),
-              fontSize = 13.sp,
-              fontFamily = ManropeFontFamily
-            )
-          },
-          leadingIcon = {
-            Icon(
-              imageVector = Icons.Default.Link,
-              contentDescription = null,
-              tint = SummerOutline,
-              modifier = Modifier.size(18.dp)
-            )
-          },
-          trailingIcon = {
-            if (urlInput.isNotBlank()) {
-              IconButton(onClick = { urlInput = "" }, modifier = Modifier.size(24.dp)) {
-                Icon(
-                  imageVector = Icons.Default.Close,
-                  contentDescription = "Clear",
-                  tint = SummerOutline,
-                  modifier = Modifier.size(16.dp)
-                )
-              }
-            }
-          },
-          singleLine = true,
-          shape = RoundedCornerShape(12.dp),
-          colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = SummerSurfaceContainerHigh.copy(alpha = 0.8f),
-            unfocusedContainerColor = SummerSurfaceContainerHigh.copy(alpha = 0.8f),
-            focusedBorderColor = SummerPrimaryContainer,
-            unfocusedBorderColor = SummerBorderSubtle,
-            focusedTextColor = SummerOnSurface,
-            unfocusedTextColor = SummerOnSurface,
-            cursorColor = SummerPrimaryContainer
-          ),
-          modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // Options Container
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-          Surface(
-            color = SummerSurfaceContainerLow,
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, SummerBorderSubtle.copy(alpha = 0.6f)),
-            modifier = Modifier
-              .fillMaxWidth()
-              .clickable { autoGenerateDigest = !autoGenerateDigest }
-          ) {
-            Row(
-              modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-              verticalAlignment = Alignment.CenterVertically
-            ) {
+        },
+        trailingIcon = {
+          if (urlInput.isNotBlank()) {
+            IconButton(onClick = { urlInput = "" }, modifier = Modifier.size(24.dp)) {
               Icon(
-                imageVector = Icons.Default.AutoAwesome,
-                contentDescription = null,
-                tint = SummerPrimaryContainer,
-                modifier = Modifier.size(18.dp)
-              )
-              Spacer(modifier = Modifier.width(10.dp))
-              Text(
-                text = "Auto-generate AI digest",
-                style = MaterialTheme.typography.bodySmall.copy(
-                  fontFamily = ManropeFontFamily,
-                  fontSize = 12.sp,
-                  color = SummerOnSurface
-                ),
-                modifier = Modifier.weight(1f)
-              )
-              Checkbox(
-                checked = autoGenerateDigest,
-                onCheckedChange = { autoGenerateDigest = it },
-                colors = CheckboxDefaults.colors(
-                  checkedColor = SummerPrimaryContainer,
-                  uncheckedColor = SummerBorderSubtle,
-                  checkmarkColor = SummerSurface
-                )
+                imageVector = Icons.Default.Close,
+                contentDescription = "Clear",
+                tint = SummerOutline,
+                modifier = Modifier.size(16.dp)
               )
             }
           }
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(12.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+          focusedContainerColor = SummerSurfaceContainerHigh.copy(alpha = 0.8f),
+          unfocusedContainerColor = SummerSurfaceContainerHigh.copy(alpha = 0.8f),
+          focusedBorderColor = SummerPrimaryContainer,
+          unfocusedBorderColor = SummerBorderSubtle,
+          focusedTextColor = SummerOnSurface,
+          unfocusedTextColor = SummerOnSurface,
+          cursorColor = SummerPrimaryContainer
+        ),
+        modifier = Modifier.fillMaxWidth()
+      )
 
-          Surface(
-            color = SummerSurfaceContainerLow,
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, SummerBorderSubtle.copy(alpha = 0.6f)),
-            modifier = Modifier
-              .fillMaxWidth()
-              .clickable { prioritizeNextPodcast = !prioritizeNextPodcast }
-          ) {
-            Row(
-              modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-              verticalAlignment = Alignment.CenterVertically
-            ) {
-              Icon(
-                imageVector = Icons.Default.Podcasts,
-                contentDescription = null,
-                tint = SummerSecondary,
-                modifier = Modifier.size(18.dp)
-              )
-              Spacer(modifier = Modifier.width(10.dp))
-              Text(
-                text = "Prioritize for next podcast",
-                style = MaterialTheme.typography.bodySmall.copy(
-                  fontFamily = ManropeFontFamily,
-                  fontSize = 12.sp,
-                  color = SummerOnSurface
-                ),
-                modifier = Modifier.weight(1f)
-              )
-              Checkbox(
-                checked = prioritizeNextPodcast,
-                onCheckedChange = { prioritizeNextPodcast = it },
-                colors = CheckboxDefaults.colors(
-                  checkedColor = SummerPrimaryContainer,
-                  uncheckedColor = SummerBorderSubtle,
-                  checkmarkColor = SummerSurface
-                )
-              )
-            }
-          }
-        }
+      Spacer(modifier = Modifier.height(20.dp))
 
-        Spacer(modifier = Modifier.height(16.dp))
-        HorizontalDivider(color = SummerBorderSubtle.copy(alpha = 0.7f))
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // Action Buttons
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.End,
-          verticalAlignment = Alignment.CenterVertically
+      // Action Buttons
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        TextButton(
+          onClick = onDismiss,
+          shape = RoundedCornerShape(10.dp)
         ) {
-          TextButton(
-            onClick = onDismiss,
-            shape = RoundedCornerShape(10.dp)
-          ) {
-            Text(
-              text = "Cancel",
-              color = SummerOnSurfaceVariant,
-              fontFamily = ManropeFontFamily,
-              fontSize = 13.sp,
-              fontWeight = FontWeight.Medium
-            )
-          }
-          Spacer(modifier = Modifier.width(8.dp))
-          Button(
-            onClick = {
-              val trimmed = urlInput.trim()
-              if (trimmed.isNotBlank()) {
-                onAddUrl(trimmed)
-              }
-            },
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(
-              containerColor = SummerPrimaryContainer,
-              contentColor = SummerOnPrimaryContainer
-            )
-          ) {
-            Icon(
-              imageVector = Icons.Default.Add,
-              contentDescription = null,
-              modifier = Modifier.size(16.dp),
-              tint = SummerSurface
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-              text = "Add Link",
-              color = SummerSurface,
-              fontFamily = ManropeFontFamily,
-              fontSize = 13.sp,
-              fontWeight = FontWeight.SemiBold
-            )
-          }
+          Text(
+            text = "Cancel",
+            color = SummerOnSurfaceVariant,
+            fontFamily = ManropeFontFamily,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+          )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Button(
+          onClick = {
+            val trimmed = urlInput.trim()
+            if (trimmed.isNotBlank()) {
+              onAddUrl(trimmed)
+            }
+          },
+          shape = RoundedCornerShape(12.dp),
+          colors = ButtonDefaults.buttonColors(
+            containerColor = SummerPrimaryContainer,
+            contentColor = SummerOnPrimaryContainer
+          )
+        ) {
+          Icon(
+            imageVector = Icons.Default.Add,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = SummerSurface
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(
+            text = "Add link",
+            color = SummerSurface,
+            fontFamily = ManropeFontFamily,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold
+          )
         }
       }
     }
@@ -4567,14 +4867,22 @@ private fun AndroidOnDeviceTtsSettingsSection(
 
   Text(
     text = "Android On-Device Multi-Voice TTS",
-    style = MaterialTheme.typography.titleSmall,
-    fontWeight = FontWeight.SemiBold
+    style = MaterialTheme.typography.bodyLarge.copy(
+      fontFamily = ManropeFontFamily,
+      fontWeight = FontWeight.SemiBold,
+      fontSize = 14.sp
+    ),
+    color = SummerOnSurface
   )
   Spacer(modifier = Modifier.height(4.dp))
   Text(
     text = "100% free, unlimited, and works offline without any account or API key. Sub-chunks oversized turns on sentence boundaries and stitches all hosts into a single seekable WAV podcast file.",
-    style = MaterialTheme.typography.bodySmall,
-    color = MaterialTheme.colorScheme.onSurfaceVariant
+    style = MaterialTheme.typography.bodySmall.copy(
+      fontFamily = ManropeFontFamily,
+      fontSize = 12.sp,
+      lineHeight = 17.sp
+    ),
+    color = SummerOnSurfaceVariant
   )
   Spacer(modifier = Modifier.height(10.dp))
 
@@ -4666,8 +4974,11 @@ private fun AndroidOnDeviceTtsSettingsSection(
   ) {
     Text(
       text = "Speech Rate: ${"%.2f".format(draftRate)}x",
-      style = MaterialTheme.typography.bodySmall,
-      fontWeight = FontWeight.Medium
+      style = MaterialTheme.typography.bodySmall.copy(
+        fontFamily = ManropeFontFamily,
+        fontWeight = FontWeight.Medium
+      ),
+      color = SummerOnSurface
     )
     if (draftRate != 1.0f || draftPitch != 1.0f) {
       TextButton(
@@ -4677,7 +4988,7 @@ private fun AndroidOnDeviceTtsSettingsSection(
           onUpdateSettings { it.copy(androidSpeechRate = 1.0f, androidSpeechPitch = 1.0f) }
         }
       ) {
-        Text("Reset 1.0x")
+        Text("Reset 1.0x", fontFamily = ManropeFontFamily, fontSize = 12.sp, color = SummerPrimary)
       }
     }
   }
@@ -4688,13 +4999,21 @@ private fun AndroidOnDeviceTtsSettingsSection(
       onUpdateSettings { it.copy(androidSpeechRate = draftRate) }
     },
     valueRange = 0.5f..2.0f,
-    steps = 14
+    steps = 14,
+    colors = SliderDefaults.colors(
+      thumbColor = SummerPrimaryContainer,
+      activeTrackColor = SummerPrimaryContainer,
+      inactiveTrackColor = SummerSurfaceContainerHigh
+    )
   )
 
   Text(
     text = "Base Pitch: ${"%.2f".format(draftPitch)}x",
-    style = MaterialTheme.typography.bodySmall,
-    fontWeight = FontWeight.Medium
+    style = MaterialTheme.typography.bodySmall.copy(
+      fontFamily = ManropeFontFamily,
+      fontWeight = FontWeight.Medium
+    ),
+    color = SummerOnSurface
   )
   Slider(
     value = draftPitch,
@@ -4703,7 +5022,12 @@ private fun AndroidOnDeviceTtsSettingsSection(
       onUpdateSettings { it.copy(androidSpeechPitch = draftPitch) }
     },
     valueRange = 0.5f..2.0f,
-    steps = 14
+    steps = 14,
+    colors = SliderDefaults.colors(
+      thumbColor = SummerPrimaryContainer,
+      activeTrackColor = SummerPrimaryContainer,
+      inactiveTrackColor = SummerSurfaceContainerHigh
+    )
   )
 }
 
