@@ -73,7 +73,7 @@ private val sampleWebsite1 = SavedWebsite(
   url = "https://simonwillison.net/2026/local-llm-reasoning",
   domain = "simonwillison.net",
   title = "Catching Edge Cases with Local LLM Reasoning",
-  faviconUrl = "",
+  faviconUrl = "https://simonwillison.net/favicon.ico",
   thumbnailUrl = "",
   extractedContent = "Exploring how local models like Gemini Nano reason about edge cases in web extraction.",
   summary = "Combines private on-device Gemini Nano with cloud models for instant offline processing and rich digests.\n\n• **AICore NPU**: Zero latency variance and 100% offline privacy on Tensor G4.\n• **Cloud Synthesis**: Effortlessly handles 30,000+ token context windows across English and Swedish.",
@@ -89,8 +89,8 @@ private val sampleWebsite2 = SavedWebsite(
   url = "https://developer.android.com/ai/hybrid-architecture",
   domain = "developer.android.com",
   title = "Hybrid On-Device and Cloud AI Architecture on Modern Android",
-  faviconUrl = "",
-  thumbnailUrl = "",
+  faviconUrl = "https://developer.android.com/favicon.ico",
+  thumbnailUrl = "https://developer.android.com/images/android-logo.png",
   extractedContent = "Android's approach to partitioning intelligence between local NPUs and cloud models.",
   summary = null,
   createdAt = System.currentTimeMillis() - 7200000L,
@@ -112,14 +112,14 @@ private val sampleDigestAudioReady = DigestEntry(
       title = "The On-Device AI & Compose Performance Brief",
       url = "https://developer.android.com/compose",
       domain = "developer.android.com",
-      faviconUrl = ""
+      faviconUrl = "https://developer.android.com/favicon.ico"
     ),
     DigestSourceWebsite(
       id = "s-2",
       title = "Local LLM Reasoning",
       url = "https://simonwillison.net",
       domain = "simonwillison.net",
-      faviconUrl = ""
+      faviconUrl = "https://simonwillison.net/favicon.ico"
     )
   ),
   hostNames = listOf("Maya", "Leo"),

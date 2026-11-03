@@ -43,12 +43,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import se.oscarb.summer.R
 import se.oscarb.summer.data.SavedWebsite
 import se.oscarb.summer.theme.SummerBackground
 import se.oscarb.summer.theme.SummerBorderSubtle
@@ -346,9 +349,17 @@ internal fun WebsiteItemCard(
 internal fun WebsiteSourceRow(website: SavedWebsite, showAiBadge: Boolean) {
   Row(verticalAlignment = Alignment.CenterVertically) {
     if (website.faviconUrl.isNotBlank()) {
+      val isInspection = LocalInspectionMode.current
+      val faviconPlaceholder = if (isInspection) {
+        painterResource(R.drawable.ic_summer_logo)
+      } else {
+        null
+      }
       AsyncImage(
         model = website.faviconUrl,
         contentDescription = null,
+        placeholder = faviconPlaceholder,
+        error = faviconPlaceholder,
         modifier = Modifier
           .size(14.dp)
           .clip(RoundedCornerShape(3.dp))
@@ -400,7 +411,7 @@ private val sampleWebsite1 = SavedWebsite(
   url = "https://simonwillison.net/2026/local-llm-reasoning",
   domain = "simonwillison.net",
   title = "Catching Edge Cases with Local LLM Reasoning",
-  faviconUrl = "",
+  faviconUrl = "https://simonwillison.net/favicon.ico",
   thumbnailUrl = "",
   extractedContent = "Exploring how local models like Gemini Nano reason about edge cases in web extraction.",
   summary = "Combines private on-device Gemini Nano with cloud models for instant offline processing and rich digests.\n\n• **AICore NPU**: Zero latency variance and 100% offline privacy on Tensor G4.\n• **Cloud Synthesis**: Effortlessly handles 30,000+ token context windows across English and Swedish.",
@@ -416,11 +427,26 @@ private val sampleWebsiteWithThumbnail = SavedWebsite(
   url = "https://developer.android.com/ai/hybrid-architecture",
   domain = "developer.android.com",
   title = "Hybrid On-Device and Cloud AI Architecture on Modern Android",
-  faviconUrl = "",
+  faviconUrl = "https://developer.android.com/favicon.ico",
   thumbnailUrl = "https://developer.android.com/images/android-logo.png",
   extractedContent = "Android's approach to partitioning intelligence between local NPUs and cloud models.",
   summary = "Combines private on-device Gemini Nano with cloud models for instant offline processing and rich digests.\n\n• **AICore NPU**: Zero latency variance and 100% offline privacy on Tensor G4.\n• **Cloud Synthesis**: Effortlessly handles 30,000+ token context windows across English and Swedish.",
   summaryProvider = "Gemini 3.8 Flash",
+  createdAt = System.currentTimeMillis() - 3600000L,
+  updatedAt = System.currentTimeMillis() - 3600000L,
+  isRead = false,
+  isArchived = false
+)
+
+private val sampleWebsiteNoMedia = SavedWebsite(
+  id = "web-nomedia",
+  url = "https://news.ycombinator.com",
+  domain = "news.ycombinator.com",
+  title = "Hacker News Digest",
+  faviconUrl = "",
+  thumbnailUrl = "",
+  extractedContent = "Tech news discussion.",
+  summary = null,
   createdAt = System.currentTimeMillis() - 3600000L,
   updatedAt = System.currentTimeMillis() - 3600000L,
   isRead = false,
@@ -489,6 +515,24 @@ fun WebsiteCardExpandedWithThumbnailPreview() {
       WebsiteItemCard(
         website = sampleWebsiteWithThumbnail,
         isExpanded = true,
+        onCardClick = {},
+        onSummarizeClick = {},
+        onToggleArchive = {},
+        onDelete = {},
+        onOpenExternal = {}
+      )
+    }
+  }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Website Card - Fallback Link Icon", showBackground = true, backgroundColor = 0xFF131316)
+@Composable
+fun WebsiteCardFallbackIconPreview() {
+  se.oscarb.summer.theme.SummerTheme {
+    Surface(color = SummerBackground, modifier = Modifier.padding(16.dp)) {
+      WebsiteItemCard(
+        website = sampleWebsiteNoMedia,
+        isExpanded = false,
         onCardClick = {},
         onSummarizeClick = {},
         onToggleArchive = {},

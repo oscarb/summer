@@ -15,12 +15,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import se.oscarb.summer.R
 import se.oscarb.summer.theme.ManropeFontFamily
 import se.oscarb.summer.theme.NewsreaderFontFamily
 import se.oscarb.summer.theme.SummerBorderSubtle
@@ -139,12 +142,20 @@ internal fun FeatheredThumbnail(
   bottomFadeStart: Float,
   modifier: Modifier = Modifier
 ) {
+  val isInspection = LocalInspectionMode.current
+  val placeholderPainter = if (isInspection) {
+    painterResource(R.drawable.img_thumbnail_placeholder)
+  } else {
+    ColorPainter(SummerSurfaceContainerHigh)
+  }
+
   Box(modifier = modifier) {
     AsyncImage(
       model = url,
       contentDescription = null,
       contentScale = ContentScale.Crop,
-      placeholder = ColorPainter(SummerSurfaceContainerHigh),
+      placeholder = placeholderPainter,
+      error = placeholderPainter,
       modifier = Modifier.fillMaxSize()
     )
     Box(

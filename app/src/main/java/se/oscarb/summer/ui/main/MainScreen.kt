@@ -136,6 +136,7 @@ import kotlin.math.hypot
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -1284,9 +1285,17 @@ internal fun CatchMeUpDigestSheetContent(  digest: DigestEntry,
               .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
           ) {
+            val isInspection = LocalInspectionMode.current
+            val faviconPlaceholder = if (isInspection) {
+              painterResource(R.drawable.ic_summer_logo)
+            } else {
+              null
+            }
             AsyncImage(
               model = source.faviconUrl,
               contentDescription = null,
+              placeholder = faviconPlaceholder,
+              error = faviconPlaceholder,
               modifier = Modifier
                 .size(16.dp)
                 .clip(RoundedCornerShape(3.dp))
