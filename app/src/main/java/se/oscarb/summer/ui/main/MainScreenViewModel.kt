@@ -47,7 +47,8 @@ data class SummerUiState(
   val postSaveEvent: PostSaveBannerEvent? = null,
   val settings: AppSettings = AppSettings(),
   val podcastPlayback: PodcastPlaybackState = PodcastPlaybackState(),
-  val verification: VerificationUiState = VerificationUiState()
+  val verification: VerificationUiState = VerificationUiState(),
+  val isInitialLoad: Boolean = true
 )
 
 class MainScreenViewModel(application: Application) : AndroidViewModel(application) {
@@ -78,18 +79,28 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     repository.digests,
     repository.settings,
     repository.isGeneratingDigest,
-    combine(
-      _activeFilter,
-      _expandedIds,
-      _activeDigestSheet,
-      _digestError,
-      combine(playbackController.state, _verification, _postSaveEvent) { pb, ver, postSave ->
-        Triple(pb, ver, postSave)
-      }
-    ) { filter, expanded, sheet, err, (playback, verification, postSave) ->
-      Septet(filter, expanded, sheet, err, playback, verification, postSave)
-    }
-  ) { websites, digests, settings, isGeneratingDigest, (filter, expanded, sheet, err, playback, verification, postSave) ->
+    repository.isInitialLoad,
+    _activeFilter,
+    _expandedIds,
+    _activeDigestSheet,
+    _digestError,
+    playbackController.state,
+    _verification,
+    _postSaveEvent
+  ) { array ->
+    val websites = array[0] as List<SavedWebsite>
+    val digests = array[1] as List<DigestEntry>
+    val settings = array[2] as AppSettings
+    val isGeneratingDigest = array[3] as Boolean
+    val isInitialLoad = array[4] as Boolean
+    val filter = array[5] as LinkFilter
+    val expanded = array[6] as Set<String>
+    val sheet = array[7] as DigestEntry?
+    val err = array[8] as String?
+    val playback = array[9] as PodcastPlaybackState
+    val verification = array[10] as VerificationUiState
+    val postSave = array[11] as PostSaveBannerEvent?
+    
     val filtered = if (filter == LinkFilter.UNREAD) {
       websites.filter { !it.isArchived }
     } else if (filter == LinkFilter.ALL) {
@@ -119,7 +130,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
       postSaveEvent = postSave,
       settings = settings,
       podcastPlayback = playback,
-      verification = verification
+      verification = verification,
+      isInitialLoad = isInitialLoad
     )
   }.stateIn(
     scope = viewModelScope,
@@ -357,13 +369,5 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
   }
 
-  private data class Septet<A, B, C, D, E, F, G>(
-    val first: A,
-    val second: B,
-    val third: C,
-    val fourth: D,
-    val fifth: E,
-    val sixth: F,
-    val seventh: G
-  )
+
 }

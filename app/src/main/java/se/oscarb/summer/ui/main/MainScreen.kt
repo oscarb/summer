@@ -660,7 +660,9 @@ fun MainScreen(
         }
 
         // Feed List / Empty State
-        if (dateGroups.isEmpty()) {
+        if (state.isInitialLoad) {
+          // Show nothing while loading (avoids the empty view flash)
+        } else if (dateGroups.isEmpty()) {
           EmptyFeedView(
             feedMode = feedMode,
             onAddLinkClick = { showAddLinkDialog = true },

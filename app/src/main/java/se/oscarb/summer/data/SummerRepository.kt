@@ -57,6 +57,9 @@ class SummerRepository private constructor(private val appContext: Context) {
 
   private val _settings = MutableStateFlow(AppSettings())
   val settings: StateFlow<AppSettings> = _settings.asStateFlow()
+  
+  private val _isInitialLoad = MutableStateFlow(true)
+  val isInitialLoad: StateFlow<Boolean> = _isInitialLoad.asStateFlow()
 
   private val _isGeneratingDigest = MutableStateFlow(false)
   val isGeneratingDigest: StateFlow<Boolean> = _isGeneratingDigest.asStateFlow()
@@ -133,6 +136,9 @@ class SummerRepository private constructor(private val appContext: Context) {
         _digests.value = withEpisodeNumbers.sortedByDescending { it.createdAt }
       }
     }
+    
+    // Once loading is fully complete, signal the UI that the initial state is ready
+    _isInitialLoad.value = false
   }
 
   private fun backfillMissingThumbnailsForUnread() {
