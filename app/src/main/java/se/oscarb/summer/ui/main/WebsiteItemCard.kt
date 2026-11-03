@@ -104,7 +104,7 @@ internal fun WebsiteItemCard(
             bottomFadeStart = 0.35f,
             modifier = Modifier
               .align(Alignment.TopEnd)
-              .size(96.dp)
+              .size(116.dp)
           )
         }
 
@@ -140,7 +140,7 @@ internal fun WebsiteItemCard(
             bottomFadeStart = 0.35f,
             modifier = Modifier
               .align(Alignment.TopEnd)
-              .size(96.dp)
+              .size(116.dp)
           )
         }
 
