@@ -367,10 +367,9 @@ fun MainScreenFeedFullPreview() {
               verticalAlignment = Alignment.CenterVertically,
               modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
             ) {
-              Icon(
-                imageVector = Icons.Default.Layers,
+              Image(
+                painter = painterResource(id = R.drawable.ic_summer_logo),
                 contentDescription = null,
-                tint = SummerPrimaryContainer,
                 modifier = Modifier.size(24.dp)
               )
               Spacer(modifier = Modifier.width(8.dp))
@@ -741,3 +740,42 @@ fun SettingsBrowserCapturePreview() {
     }
   }
 }
+
+@Preview(name = "Empty Feed View - Clear", showBackground = true, backgroundColor = 0xFF131316)
+@Composable
+fun EmptyFeedViewClearPreview() {
+  SummerTheme {
+    Surface(
+      modifier = Modifier.fillMaxSize(),
+      color = SummerBackground
+    ) {
+      Column(
+        modifier = Modifier
+          .fillMaxSize()
+          .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+      ) {
+        Image(
+          painter = painterResource(R.drawable.ic_summer_logo),
+          contentDescription = null,
+          modifier = Modifier.size(68.dp)
+        )
+        Spacer(modifier = Modifier.height(18.dp))
+        Text(
+          text = "Your feed is clear",
+          style = MaterialTheme.typography.headlineSmall,
+          color = SummerOnSurface
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+          text = "Share articles to Summer from your browser or tap Add URL to curate your personal reading list.",
+          style = MaterialTheme.typography.bodyMedium,
+          color = SummerOnSurfaceVariant,
+          textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+      }
+    }
+  }
+}
+

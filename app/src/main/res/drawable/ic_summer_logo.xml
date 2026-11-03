@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Standalone Chrome Ring logo (no outer badge/circle).
+  Centered in viewport 54x54 (center at x=27):
+  - Sun: center (27, 26), outer radius R=22 (x: 5..49), inner ring r=14 (x: 13..41), core radius 11 (x: 16..38).
+  - Water: 5 rows centered around x=27 with broken, asymmetrical ripples.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="54"
+    android:viewportHeight="54">
+
+    <!-- Sun ring: left segment -->
+    <path
+        android:fillColor="#F2C078"
+        android:pathData="M5,26 A22,22 0 0,1 10.15,11.86 L21.08,13.31 A14,14 0 0,0 13,26 Z" />
+
+    <!-- Sun ring: top segment -->
+    <path
+        android:fillColor="#E5A654"
+        android:pathData="M10.15,11.86 A22,22 0 0,1 30.82,4.33 L35.03,14.53 A14,14 0 0,0 21.08,13.31 Z" />
+
+    <!-- Sun ring: right segment -->
+    <path
+        android:fillColor="#D98A3C"
+        android:pathData="M30.82,4.33 A22,22 0 0,1 49,26 L41,26 A14,14 0 0,0 35.03,14.53 Z" />
+
+    <!-- Sun core -->
+    <path
+        android:fillColor="#FFE7BF"
+        android:pathData="M16,26 A11,11 0 0,1 38,26 Z" />
+
+    <!-- Water ripples (5 rows, broken & asymmetrical, centered around x=27) -->
+    <!-- Row 1 (y=31) -->
+    <path
+        android:strokeColor="#F2C078"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M4,31 H23 M28,31 H50" />
+
+    <!-- Row 2 (y=36.5) -->
+    <path
+        android:strokeColor="#E5A654"
+        android:strokeWidth="2.7"
+        android:strokeLineCap="round"
+        android:pathData="M9,36.5 H35 M40,36.5 H46" />
+
+    <!-- Row 3 (y=41.8) -->
+    <path
+        android:strokeColor="#D98A3C"
+        android:strokeAlpha="0.9"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M12,41.8 H18 M23,41.8 H40" />
+
+    <!-- Row 4 (y=46.8) -->
+    <path
+        android:strokeColor="#C6762B"
+        android:strokeAlpha="0.8"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M19,46.8 H32 M37,46.8 H38.5" />
+
+    <!-- Row 5 (y=51.5) -->
+    <path
+        android:strokeColor="#B36522"
+        android:strokeAlpha="0.7"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M22,51.5 H29" />
+
+</vector>

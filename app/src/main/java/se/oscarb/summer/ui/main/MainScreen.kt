@@ -455,12 +455,20 @@ fun MainScreen(
               .clickable { feedMode = feedMode.next() }
               .padding(horizontal = 4.dp, vertical = 4.dp)
           ) {
-            Icon(
-              imageVector = feedMode.icon,
-              contentDescription = null,
-              tint = SummerPrimaryContainer,
-              modifier = Modifier.size(24.dp)
-            )
+            if (feedMode == FeedMode.ALL) {
+              Image(
+                painter = painterResource(id = R.drawable.ic_summer_logo),
+                contentDescription = null,
+                modifier = Modifier.size(24.dp)
+              )
+            } else {
+              Icon(
+                imageVector = feedMode.icon,
+                contentDescription = null,
+                tint = SummerPrimaryContainer,
+                modifier = Modifier.size(24.dp)
+              )
+            }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
               text = feedMode.title,
@@ -2400,9 +2408,9 @@ private fun EmptyFeedView(
     verticalArrangement = Arrangement.Center
   ) {
     Image(
-      painter = painterResource(R.drawable.ic_summer_sunrise),
+      painter = painterResource(R.drawable.ic_summer_logo),
       contentDescription = null,
-      modifier = Modifier.size(64.dp)
+      modifier = Modifier.size(68.dp)
     )
     Spacer(modifier = Modifier.height(18.dp))
     Text(

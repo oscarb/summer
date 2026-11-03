@@ -5,28 +5,53 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
+    <!-- Sun outer ring segments -->
     <path
         android:fillColor="#FF000000"
-        android:pathData="M32,52 A22,22 0 0,1 76,52 Z" />
+        android:pathData="M32,52 A22,22 0 0,1 37.15,37.86 L48.08,39.31 A14,14 0 0,0 40,52 Z" />
 
     <path
         android:fillColor="#FF000000"
-        android:pathData="M31,56 L77,56 A1.5,1.5 0 0,1 78.5,57.5 A1.5,1.5 0 0,1 77,59 L31,59 A1.5,1.5 0 0,1 29.5,57.5 A1.5,1.5 0 0,1 31,56 Z" />
+        android:pathData="M37.15,37.86 A22,22 0 0,1 57.82,30.33 L62.03,40.53 A14,14 0 0,0 48.08,39.31 Z" />
 
     <path
         android:fillColor="#FF000000"
-        android:pathData="M37,61.5 L71,61.5 A1.25,1.25 0 0,1 72.25,62.75 A1.25,1.25 0 0,1 71,64 L37,64 A1.25,1.25 0 0,1 35.75,62.75 A1.25,1.25 0 0,1 37,61.5 Z" />
+        android:pathData="M57.82,30.33 A22,22 0 0,1 76,52 L68,52 A14,14 0 0,0 62.03,40.53 Z" />
 
+    <!-- Sun inner core (separated by a gap) -->
     <path
         android:fillColor="#FF000000"
-        android:pathData="M42,66.5 L66,66.5 A1.2,1.2 0 0,1 67.2,67.7 A1.2,1.2 0 0,1 66,68.9 L42,68.9 A1.2,1.2 0 0,1 40.8,67.7 A1.2,1.2 0 0,1 42,66.5 Z" />
+        android:pathData="M43,52 A11,11 0 0,1 65,52 Z" />
+
+    <!-- Water ripples (broken & asymmetrical) -->
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M31,57 H50 M55,57 H77" />
 
     <path
-        android:fillColor="#FF000000"
-        android:pathData="M46.5,71.5 L61.5,71.5 A1.1,1.1 0 0,1 62.6,72.6 A1.1,1.1 0 0,1 61.5,73.7 L46.5,73.7 A1.1,1.1 0 0,1 45.4,72.6 A1.1,1.1 0 0,1 46.5,71.5 Z" />
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2.7"
+        android:strokeLineCap="round"
+        android:pathData="M36,62.5 H62 M67,62.5 H73" />
 
     <path
-        android:fillColor="#FF000000"
-        android:pathData="M50,76 L58,76 A1,1 0 0,1 59,77 A1,1 0 0,1 58,78 L50,78 A1,1 0 0,1 49,77 A1,1 0 0,1 50,76 Z" />
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M39,67.8 H45 M50,67.8 H67" />
+
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M46,72.8 H59 M64,72.8 H65.5" />
+
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M49,77.5 H56" />
 
 </vector>
