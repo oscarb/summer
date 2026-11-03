@@ -394,3 +394,107 @@ internal fun WebsiteSourceRow(website: SavedWebsite, showAiBadge: Boolean) {
     }
   }
 }
+
+private val sampleWebsite1 = SavedWebsite(
+  id = "web-1",
+  url = "https://simonwillison.net/2026/local-llm-reasoning",
+  domain = "simonwillison.net",
+  title = "Catching Edge Cases with Local LLM Reasoning",
+  faviconUrl = "",
+  thumbnailUrl = "",
+  extractedContent = "Exploring how local models like Gemini Nano reason about edge cases in web extraction.",
+  summary = "Combines private on-device Gemini Nano with cloud models for instant offline processing and rich digests.\n\n• **AICore NPU**: Zero latency variance and 100% offline privacy on Tensor G4.\n• **Cloud Synthesis**: Effortlessly handles 30,000+ token context windows across English and Swedish.",
+  summaryProvider = "Gemini 3.8 Flash",
+  createdAt = System.currentTimeMillis() - 3600000L,
+  updatedAt = System.currentTimeMillis() - 3600000L,
+  isRead = false,
+  isArchived = false
+)
+
+private val sampleWebsiteWithThumbnail = SavedWebsite(
+  id = "web-thumb",
+  url = "https://developer.android.com/ai/hybrid-architecture",
+  domain = "developer.android.com",
+  title = "Hybrid On-Device and Cloud AI Architecture on Modern Android",
+  faviconUrl = "",
+  thumbnailUrl = "https://developer.android.com/images/android-logo.png",
+  extractedContent = "Android's approach to partitioning intelligence between local NPUs and cloud models.",
+  summary = "Combines private on-device Gemini Nano with cloud models for instant offline processing and rich digests.\n\n• **AICore NPU**: Zero latency variance and 100% offline privacy on Tensor G4.\n• **Cloud Synthesis**: Effortlessly handles 30,000+ token context windows across English and Swedish.",
+  summaryProvider = "Gemini 3.8 Flash",
+  createdAt = System.currentTimeMillis() - 3600000L,
+  updatedAt = System.currentTimeMillis() - 3600000L,
+  isRead = false,
+  isArchived = false
+)
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Website Card - Collapsed", showBackground = true, backgroundColor = 0xFF131316)
+@Composable
+fun WebsiteCardCollapsedPreview() {
+  se.oscarb.summer.theme.SummerTheme {
+    Surface(color = SummerBackground, modifier = Modifier.padding(16.dp)) {
+      WebsiteItemCard(
+        website = sampleWebsite1,
+        isExpanded = false,
+        onCardClick = {},
+        onSummarizeClick = {},
+        onToggleArchive = {},
+        onDelete = {},
+        onOpenExternal = {}
+      )
+    }
+  }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Website Card - Expanded", showBackground = true, backgroundColor = 0xFF131316)
+@Composable
+fun WebsiteCardExpandedPreview() {
+  se.oscarb.summer.theme.SummerTheme {
+    Surface(color = SummerBackground, modifier = Modifier.padding(16.dp)) {
+      WebsiteItemCard(
+        website = sampleWebsite1,
+        isExpanded = true,
+        onCardClick = {},
+        onSummarizeClick = {},
+        onToggleArchive = {},
+        onDelete = {},
+        onOpenExternal = {}
+      )
+    }
+  }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Website Card - Collapsed with Thumbnail", showBackground = true, backgroundColor = 0xFF131316)
+@Composable
+fun WebsiteCardCollapsedWithThumbnailPreview() {
+  se.oscarb.summer.theme.SummerTheme {
+    Surface(color = SummerBackground, modifier = Modifier.padding(16.dp)) {
+      WebsiteItemCard(
+        website = sampleWebsiteWithThumbnail,
+        isExpanded = false,
+        onCardClick = {},
+        onSummarizeClick = {},
+        onToggleArchive = {},
+        onDelete = {},
+        onOpenExternal = {}
+      )
+    }
+  }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Website Card - Expanded with Thumbnail", showBackground = true, backgroundColor = 0xFF131316)
+@Composable
+fun WebsiteCardExpandedWithThumbnailPreview() {
+  se.oscarb.summer.theme.SummerTheme {
+    Surface(color = SummerBackground, modifier = Modifier.padding(16.dp)) {
+      WebsiteItemCard(
+        website = sampleWebsiteWithThumbnail,
+        isExpanded = true,
+        onCardClick = {},
+        onSummarizeClick = {},
+        onToggleArchive = {},
+        onDelete = {},
+        onOpenExternal = {}
+      )
+    }
+  }
+}
