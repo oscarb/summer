@@ -22,6 +22,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import se.oscarb.summer.util.PodcastScriptParser
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -80,7 +81,7 @@ class AiSummaryService(private val appContext: Context) {
     hostNames: List<String> = listOf(settings.hostAName, settings.hostBName),
     language: PodcastLanguage = settings.podcastLanguage,
     nowMillis: Long = System.currentTimeMillis()
-  ): Result<String> = withContext(Dispatchers.IO) {
+  ): Result<PodcastEpisodeScript> = withContext(Dispatchers.IO) {
     if (websites.isEmpty()) {
       return@withContext Result.failure(IllegalArgumentException("No articles available for podcast script."))
     }
@@ -203,6 +204,11 @@ class AiSummaryService(private val appContext: Context) {
 
     val targetTurns = if (hostC != null) "15 to 26" else "12 to 22"
 
+    val titleLanguage = when (language) {
+      PodcastLanguage.SWEDISH -> "Swedish"
+      PodcastLanguage.ENGLISH -> "English"
+    }
+
     val prompt = """
       You are the showrunner and scriptwriter for the "Summer" daily catch-up podcast.
       Write an engaging, natural-sounding podcast episode between ${PodcastCastCatalog.formatHostList(cleanHosts, language)} covering the user's ${websites.size} saved article(s) below.
@@ -222,13 +228,26 @@ class AiSummaryService(private val appContext: Context) {
       $speakerFormatLines
       - Do NOT use markdown bold, bullet points, bracketed citations like [1], URLs, or stage directions like [music] or [laughs].
       - Aim for $targetTurns conversational turns total so every saved article is covered meaningfully at a brisk, lively pace.
-      
+
+      EPISODE TITLE:
+      - The very first line of your output must be the episode title, formatted exactly as: TITLE: <episode title>
+      - Then start the dialogue on the next line.
+      - Write it like a real podcast episode title in $titleLanguage: short (roughly 2 to 7 words), punchy and intriguing.
+      - Base it on the theme that connects most of the articles (the red line). If the articles don't share a theme, base it on the biggest or most prominent story instead.
+      - NEVER title the episode after a minor story or a single passing moment that only covers a small part of the episode.
+      - A catchy phrase or hook is welcome, but a listener should still be able to guess roughly what the episode covers from the title alone.
+      - Do NOT just restate, concatenate, or list the article headlines or website names. No episode numbers, dates, show name, quotes, or emojis.
+
       Articles to weave together:
       $itemsBlock
     """.trimIndent()
 
     generateWithSelectedBackend(prompt, settings).map { raw ->
-      raw.replaceFirst(Regex("""^\s*(\*{1,2})?\s*TL;?DR:?\s*(\*{1,2})?:?\s*""", RegexOption.IGNORE_CASE), "").trimStart()
+      val (title, script) = PodcastScriptParser.extractEpisodeTitle(raw)
+      PodcastEpisodeScript(
+        title = title,
+        script = script.replaceFirst(Regex("""^\s*(\*{1,2})?\s*TL;?DR:?\s*(\*{1,2})?:?\s*""", RegexOption.IGNORE_CASE), "").trimStart()
+      )
     }
   }
 
@@ -567,3 +586,9 @@ class AiSummaryService(private val appContext: Context) {
     private const val TAG = "AiSummaryService"
   }
 }
+
+/** A generated podcast script plus the LLM-written episode title (null if the model omitted it). */
+data class PodcastEpisodeScript(
+  val title: String?,
+  val script: String
+)

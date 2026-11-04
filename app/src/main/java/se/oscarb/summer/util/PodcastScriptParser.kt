@@ -175,6 +175,39 @@ object PodcastScriptParser {
     return pattern.containsMatchIn(haystack)
   }
 
+  private val EPISODE_TITLE_LINE_REGEX = Regex(
+    pattern = """^\s*(?:#+\s*)?(?:\*\*|__)?\s*(?:episode\s+title|avsnittstitel|title|titel)\s*(?:\*\*|__)?\s*:\s*(.+)$""",
+    option = RegexOption.IGNORE_CASE
+  )
+
+  /**
+   * Splits a leading `TITLE: ...` line (as requested in the script prompt) from the dialogue.
+   * Returns the cleaned title (or null when absent) and the remaining script without that line,
+   * so the title is never read aloud by the TTS engine.
+   */
+  fun extractEpisodeTitle(rawScript: String): Pair<String?, String> {
+    val lines = rawScript.lines()
+    val titleLineIndex = lines.withIndex()
+      .filter { it.value.isNotBlank() }
+      .take(3)
+      .firstOrNull { EPISODE_TITLE_LINE_REGEX.matches(it.value.trim()) }
+      ?.index
+      ?: return null to rawScript
+
+    val rawTitle = EPISODE_TITLE_LINE_REGEX.matchEntire(lines[titleLineIndex].trim())!!.groupValues[1]
+    val title = cleanSpokenText(rawTitle)
+      .trim('"', '\'', '“', '”', '«', '»', ' ')
+      .trimEnd('.')
+      .take(80)
+      .trim()
+      .ifBlank { null }
+
+    val remaining = lines.filterIndexed { index, _ -> index != titleLineIndex }
+      .joinToString("\n")
+      .trimStart()
+    return title to remaining
+  }
+
   fun cleanSpokenText(raw: String): String {
     var cleaned = raw
     cleaned = MARKDOWN_IMAGE_REGEX.replace(cleaned, "$1")

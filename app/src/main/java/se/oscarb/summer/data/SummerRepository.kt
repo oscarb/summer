@@ -554,15 +554,15 @@ class SummerRepository private constructor(private val appContext: Context) {
       val hostNames = episodeCast.map { it.name }
       val digestId = UUID.randomUUID().toString()
       val nextEpisodeNumber = (_digests.value.maxOfOrNull { it.episodeNumber } ?: 0) + 1
-      val domains = targetWebsites.map {
-        it.domain.substringBefore('.').replaceFirstChar { c -> c.uppercase() }
-      }.distinct().take(3)
-      val domainSummary = if (domains.size == 1) domains[0] else domains.joinToString(" & ")
-      val primaryHeadline = targetWebsites.first().title.ifBlank { domainSummary }
+      // Placeholder shown while the script is being written; replaced by the AI-generated
+      // episode title once the script is ready.
       val episodeTitle = if (targetWebsites.size == 1) {
-        primaryHeadline.take(50).trim()
+        targetWebsites.first().title.take(60).trim()
       } else {
-        "${primaryHeadline.take(35).trim()} & $domainSummary"
+        when (currentSettings.podcastLanguage) {
+          PodcastLanguage.SWEDISH -> "Ikapp med ${targetWebsites.size} länkar"
+          PodcastLanguage.ENGLISH -> "Catching up on ${targetWebsites.size} links"
+        }
       }
 
       val digest = DigestEntry(
@@ -663,7 +663,7 @@ class SummerRepository private constructor(private val appContext: Context) {
       val hostsDisplay = PodcastCastCatalog.formatHostList(hostNames, episodeLanguage)
 
       val jobKey = "digest:$digestId"
-      val episodeTitle = digest.displayTitle
+      var episodeTitle = digest.displayTitle
       updateDigestPodcastStatus(
         digestId = digestId,
         isGenerating = true,
@@ -712,18 +712,21 @@ class SummerRepository private constructor(private val appContext: Context) {
         val script = if (!forceRegenerate && !digest.podcastScript.isNullOrBlank()) {
           digest.podcastScript
         } else {
-          aiService.generateCatchMeUpPodcastScript(
+          val generated = aiService.generateCatchMeUpPodcastScript(
             websites = enrichedSites,
             settings = currentSettings,
             hostNames = hostNames,
             language = episodeLanguage
           ).getOrThrow()
+          generated.title?.let { episodeTitle = it }
+          generated.script
         }
 
         _digests.update { list ->
           list.map {
             if (it.id == digestId) {
               it.copy(
+                title = episodeTitle,
                 hostNames = hostNames,
                 language = episodeLanguage,
                 podcastScript = script,

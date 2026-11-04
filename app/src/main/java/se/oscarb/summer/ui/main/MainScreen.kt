@@ -1083,9 +1083,7 @@ internal fun CatchMeUpDigestSheetContent(  digest: DigestEntry,
     Spacer(modifier = Modifier.height(12.dp))
 
     Text(
-      text = if (digest.sourceWebsites.isNotEmpty()) {
-        digest.sourceWebsites.first().title.ifBlank { "Daily AI Podcast Briefing" }
-      } else "Daily AI Podcast Briefing",
+      text = digest.displayTitle,
       style = MaterialTheme.typography.headlineLarge,
       color = SummerOnSurface
     )

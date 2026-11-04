@@ -237,4 +237,28 @@ class PodcastAudioAndScriptTest {
       tempDir.deleteRecursively()
     }
   }
+
+  @Test
+  fun extractEpisodeTitle_splitsTitleLineFromDialogue() {
+    val raw = """
+      **TITLE:** "The Quiet Death of the Password."
+
+      Alex: Welcome back to another episode of Summer!
+      Sam: Hey everyone.
+    """.trimIndent()
+
+    val (title, script) = PodcastScriptParser.extractEpisodeTitle(raw)
+
+    assertEquals("The Quiet Death of the Password", title)
+    assertFalse(script.contains("TITLE", ignoreCase = true))
+    assertEquals(2, PodcastScriptParser.parseTurns(script, listOf("Alex", "Sam")).size)
+  }
+
+  @Test
+  fun extractEpisodeTitle_returnsNullAndUntouchedScriptWhenMissing() {
+    val raw = "Alex: Hej!\nSam: Hej hej."
+    val (title, script) = PodcastScriptParser.extractEpisodeTitle(raw)
+    assertEquals(null, title)
+    assertEquals(raw, script)
+  }
 }
