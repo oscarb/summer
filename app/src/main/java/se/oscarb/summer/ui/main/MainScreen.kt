@@ -916,6 +916,7 @@ fun MainScreen(
         onMarkAllArchived = {
           viewModel.markDigestSourcesArchived(activeDigest)
         },
+        onDelete = { viewModel.deleteDigest(activeDigest.id) },
         onDismiss = viewModel::dismissDigestSheet
       )
     }
@@ -939,6 +940,7 @@ internal fun CatchMeUpDigestSheetContent(  digest: DigestEntry,
   onPlayOrGeneratePodcast: (Boolean) -> Unit,
   onOpenSourceUrl: (String) -> Unit,
   onMarkAllArchived: () -> Unit,
+  onDelete: () -> Unit,
   onDismiss: () -> Unit
 ) {
   val context = LocalContext.current
@@ -1363,6 +1365,15 @@ internal fun CatchMeUpDigestSheetContent(  digest: DigestEntry,
         Spacer(Modifier.width(6.dp))
         Text("Regenerate Audio", color = SummerPrimaryContainer)
       }
+    }
+
+    TextButton(
+      onClick = onDelete,
+      modifier = Modifier.fillMaxWidth()
+    ) {
+      Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp), tint = SummerError)
+      Spacer(Modifier.width(6.dp))
+      Text("Delete Episode", color = SummerError)
     }
 
     Spacer(modifier = Modifier.height(28.dp))
