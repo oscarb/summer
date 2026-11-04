@@ -17,13 +17,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -59,7 +58,6 @@ internal fun DigestEpisodeCard(
   playback: PodcastPlaybackState,
   onOpenDigest: () -> Unit,
   onPlayOrGenerate: () -> Unit,
-  onDelete: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   val isPlayingThis =
@@ -87,45 +85,30 @@ internal fun DigestEpisodeCard(
         horizontalArrangement = Arrangement.SpaceBetween,
         modifier = Modifier.fillMaxWidth()
       ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          Text(
-            text = digest.episodeBadgeText,
-            style = MaterialTheme.typography.labelSmall.copy(
-              fontFamily = ManropeFontFamily,
-              fontWeight = FontWeight.Bold,
-              fontSize = 11.sp,
-              letterSpacing = 1.sp
-            ),
-            color = SummerPrimaryContainer
-          )
-          if (digest.isPlayed) {
-            Spacer(modifier = Modifier.width(8.dp))
-            Surface(
-              shape = CircleShape,
-              color = SummerPrimaryContainer.copy(alpha = 0.2f)
-            ) {
-              Text(
-                text = "✓ PLAYED",
-                style = MaterialTheme.typography.labelSmall.copy(
-                  fontFamily = ManropeFontFamily,
-                  fontWeight = FontWeight.Bold,
-                  fontSize = 9.sp,
-                  letterSpacing = 0.5.sp
-                ),
-                color = SummerPrimaryContainer,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-              )
-            }
-          }
-        }
+        Text(
+          text = digest.episodeBadgeText,
+          style = MaterialTheme.typography.labelSmall.copy(
+            fontFamily = ManropeFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            letterSpacing = 1.sp
+          ),
+          color = SummerPrimaryContainer
+        )
 
-        IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
-          Icon(
-            imageVector = Icons.Default.DeleteOutline,
-            contentDescription = "Delete Episode",
-            tint = SummerOnSurfaceVariant.copy(alpha = 0.6f),
-            modifier = Modifier.size(16.dp)
-          )
+        if (digest.isPlayed) {
+          Surface(
+            shape = CircleShape,
+            color = SummerPrimaryContainer.copy(alpha = 0.2f),
+            modifier = Modifier.size(22.dp)
+          ) {
+            Icon(
+              imageVector = Icons.Default.Check,
+              contentDescription = "Played",
+              tint = SummerPrimaryContainer,
+              modifier = Modifier.padding(4.dp)
+            )
+          }
         }
       }
 
@@ -333,7 +316,6 @@ fun EpisodeCardAudioReadyPreview() {
         ),
         onOpenDigest = {},
         onPlayOrGenerate = {},
-        onDelete = {}
       )
     }
   }
@@ -369,7 +351,6 @@ fun EpisodeCardScriptReadyPreview() {
         playback = PodcastPlaybackState(),
         onOpenDigest = {},
         onPlayOrGenerate = {},
-        onDelete = {}
       )
     }
   }

@@ -152,7 +152,6 @@ fun FeedShowcasePreview() {
           playback = samplePlaybackActive,
           onOpenDigest = {},
           onPlayOrGenerate = {},
-          onDelete = {}
         )
         WebsiteItemCard(
           website = sampleWebsite1,
@@ -347,7 +346,6 @@ fun MainScreenFeedFullPreview() {
             playback = samplePlaybackActive,
             onOpenDigest = {},
             onPlayOrGenerate = {},
-            onDelete = {}
           )
           WebsiteItemCard(
             website = sampleWebsite1,

@@ -725,7 +725,6 @@ fun MainScreen(
                     ensureNotificationPermissionForPodcast()
                     viewModel.playOrGenerateDigestPodcast(episode, forceRegenerate = false)
                   },
-                  onDelete = { viewModel.deleteDigest(episode.id) }
                 )
               }
 
