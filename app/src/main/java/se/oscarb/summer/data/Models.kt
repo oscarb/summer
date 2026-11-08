@@ -30,6 +30,10 @@ enum class PodcastTtsProvider(val displayName: String, val subtitle: String) {
     displayName = "Gemini Multi-Speaker TTS (Free Tier)",
     subtitle = "Native multi-host dialogue via Google AI Studio (gemini-3.8-flash-tts)"
   ),
+  NEKOSPEAK(
+    displayName = "NekoSpeak On-Device AI TTS",
+    subtitle = "Private offline AI voices with Pocket-TTS, Kokoro, KittenTTS & Piper (com.nekospeak.tts)"
+  ),
   ANDROID_ON_DEVICE(
     displayName = "Android On-Device Multi-Voice TTS",
     subtitle = "100% free & offline system voices alternating across hosts (no API key)"
@@ -165,6 +169,155 @@ object GeminiCatalog {
   }
 }
 
+data class NekoSpeakVoiceOption(
+  val id: String,
+  val name: String,
+  val engineLabel: String,
+  val style: String,
+  val persona: VoicePersona
+) {
+  val displayLabel: String get() = "$name — $engineLabel ($style)"
+}
+
+object NekoSpeakCatalog {
+  const val PACKAGE_NAME = "com.nekospeak.tts"
+  const val GITHUB_URL = "https://github.com/siva-sub/NekoSpeak"
+  const val RELEASES_URL = "https://github.com/siva-sub/NekoSpeak/releases"
+
+  val PREBUILT_VOICES: List<NekoSpeakVoiceOption> = listOf(
+    // Kokoro v1.0 (Flagship 82M StyleTTS2 ONNX — 24kHz)
+    NekoSpeakVoiceOption("af_heart", "Heart (US)", "Kokoro v1.0", "Warm & Expressive", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("am_adam", "Adam (US)", "Kokoro v1.0", "Clear & Natural", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("af_bella", "Bella (US)", "Kokoro v1.0", "Bright & Engaging", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("am_puck", "Puck (US)", "Kokoro v1.0", "Lively & Upbeat", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("af_kore", "Kore (US)", "Kokoro v1.0", "Firm & Articulate", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("am_fenrir", "Fenrir (US)", "Kokoro v1.0", "Dynamic & Bold", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("af_nova", "Nova (US)", "Kokoro v1.0", "Crisp & Modern", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("am_onyx", "Onyx (US)", "Kokoro v1.0", "Deep & Resonant", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("af_aoede", "Aoede (US)", "Kokoro v1.0", "Breezy & Conversational", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("am_michael", "Michael (US)", "Kokoro v1.0", "Measured & Informative", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("af_sarah", "Sarah (US)", "Kokoro v1.0", "Smooth & Friendly", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("am_liam", "Liam (US)", "Kokoro v1.0", "Warm & Casual", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("af_nicole", "Nicole (US)", "Kokoro v1.0", "Soft & Calm", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("am_echo", "Echo (US)", "Kokoro v1.0", "Steady & Clear", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("af_sky", "Sky (US)", "Kokoro v1.0", "Airy & Light", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("am_eric", "Eric (US)", "Kokoro v1.0", "Direct & Grounded", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("af_alloy", "Alloy (US)", "Kokoro v1.0", "Balanced Studio", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("af_jessica", "Jessica (US)", "Kokoro v1.0", "Expressive Host", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("af_river", "River (US)", "Kokoro v1.0", "Relaxed & Flowing", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("am_santa", "Santa (US)", "Kokoro v1.0", "Jolly & Deep", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("bf_emma", "Emma (UK)", "Kokoro v1.0", "British Studio", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("bm_george", "George (UK)", "Kokoro v1.0", "British Broadcast", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("bf_alice", "Alice (UK)", "Kokoro v1.0", "British Clear", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("bm_daniel", "Daniel (UK)", "Kokoro v1.0", "British Narrative", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("bf_isabella", "Isabella (UK)", "Kokoro v1.0", "British Warm", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("bm_fable", "Fable (UK)", "Kokoro v1.0", "British Storyteller", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("bf_lily", "Lily (UK)", "Kokoro v1.0", "British Gentle", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("bm_lewis", "Lewis (UK)", "Kokoro v1.0", "British Conversational", VoicePersona.MASCULINE),
+    // Pocket-TTS (Kyutai 100M Streaming Flow-Matching — 24kHz)
+    NekoSpeakVoiceOption("alba", "Alba", "Pocket-TTS", "Casual & Natural", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("fantine", "Fantine", "Pocket-TTS", "Expressive & Clear", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("marius", "Marius", "Pocket-TTS", "Young & Energetic", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("cosette", "Cosette", "Pocket-TTS", "Soft & Gentle", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("javert", "Javert", "Pocket-TTS", "Deep & Authoritative", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("eponine", "Eponine", "Pocket-TTS", "Warm & Spirited", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("jean", "Jean", "Pocket-TTS", "Calm & Steady", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("azelma", "Azelma", "Pocket-TTS", "Bright & Lively", VoicePersona.FEMININE),
+    // Kitten TTS Nano (Ultra-lightweight 15M — 24kHz)
+    NekoSpeakVoiceOption("expr-voice-2-f", "Kitten Voice 2 (F)", "Kitten TTS", "Expressive Feminine", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("expr-voice-2-m", "Kitten Voice 2 (M)", "Kitten TTS", "Expressive Masculine", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("expr-voice-3-f", "Kitten Voice 3 (F)", "Kitten TTS", "Clear Feminine", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("expr-voice-3-m", "Kitten Voice 3 (M)", "Kitten TTS", "Clear Masculine", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("expr-voice-4-f", "Kitten Voice 4 (F)", "Kitten TTS", "Warm Feminine", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("expr-voice-4-m", "Kitten Voice 4 (M)", "Kitten TTS", "Warm Masculine", VoicePersona.MASCULINE),
+    NekoSpeakVoiceOption("expr-voice-5-f", "Kitten Voice 5 (F)", "Kitten TTS", "Bright Feminine", VoicePersona.FEMININE),
+    NekoSpeakVoiceOption("expr-voice-5-m", "Kitten Voice 5 (M)", "Kitten TTS", "Steady Masculine", VoicePersona.MASCULINE),
+    // Piper (Bundled default voice)
+    NekoSpeakVoiceOption("en_US-amy-low", "Amy (US)", "Piper", "Fast Bundled Offline", VoicePersona.FEMININE)
+  )
+
+  private val VOICES_BY_ID_LOWER: Map<String, NekoSpeakVoiceOption> =
+    PREBUILT_VOICES.associateBy { it.id.lowercase() }
+
+  private val CELEBRITY_PERSONAS: Map<String, VoicePersona> = mapOf(
+    "celebrity_trump" to VoicePersona.MASCULINE,
+    "celebrity_biden" to VoicePersona.MASCULINE,
+    "celebrity_obama" to VoicePersona.MASCULINE,
+    "celebrity_hillary" to VoicePersona.FEMININE,
+    "celebrity_kamala" to VoicePersona.FEMININE,
+    "celebrity_musk" to VoicePersona.MASCULINE,
+    "celebrity_bill_gates" to VoicePersona.MASCULINE,
+    "celebrity_zuckerberg" to VoicePersona.MASCULINE,
+    "celebrity_jensen" to VoicePersona.MASCULINE,
+    "celebrity_oprah" to VoicePersona.FEMININE,
+    "celebrity_jk_rowling" to VoicePersona.FEMININE,
+    "celebrity_greta" to VoicePersona.FEMININE,
+    "celebrity_tate" to VoicePersona.MASCULINE
+  )
+
+  fun voiceOptionFor(voiceId: String): NekoSpeakVoiceOption? {
+    val clean = voiceId.trim().lowercase()
+    return VOICES_BY_ID_LOWER[clean]
+  }
+
+  fun personaForVoice(voiceId: String): VoicePersona? {
+    val clean = voiceId.trim().lowercase()
+    if (clean.isEmpty()) return null
+    VOICES_BY_ID_LOWER[clean]?.let { return it.persona }
+    CELEBRITY_PERSONAS[clean]?.let { return it }
+    return when {
+      clean.startsWith("af_") || clean.startsWith("bf_") || clean.endsWith("-f") -> VoicePersona.FEMININE
+      clean.startsWith("am_") || clean.startsWith("bm_") || clean.endsWith("-m") -> VoicePersona.MASCULINE
+      else -> null
+    }
+  }
+
+  /**
+   * Resolves concrete NekoSpeak voice IDs for each host in [cast] against the voices exposed by
+   * the currently active NekoSpeak model (Kokoro, Pocket-TTS, Kitten TTS, or Piper).
+   *
+   * If a host's configured `voiceId` belongs to the active engine, it is preserved; otherwise, a
+   * distinct voice from [availableVoiceNames] matching the host's [VoicePersona] is selected so
+   * multi-host dialogue stays natural and contrasting even when switching engines in NekoSpeak.
+   */
+  fun resolveVoicesForActiveEngine(
+    cast: List<AssignedHostVoice>,
+    availableVoiceNames: Collection<String>
+  ): List<String> {
+    val cleanedAvailable = availableVoiceNames.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    if (cleanedAvailable.isEmpty()) {
+      val fallbackDefaults = listOf("af_heart", "am_adam", "af_bella")
+      return cast.mapIndexed { index, host ->
+        host.voiceId.trim().ifBlank {
+          fallbackDefaults.getOrElse(index) { "af_heart" }
+        }
+      }
+    }
+
+    val availableByLower = cleanedAvailable.associateBy { it.lowercase() }
+    val reservedVoices = cast.mapNotNull { host ->
+      availableByLower[host.voiceId.trim().lowercase()]
+    }.toMutableSet()
+    val usedVoices = mutableSetOf<String>()
+
+    return cast.map { host ->
+      val directMatch = availableByLower[host.voiceId.trim().lowercase()]
+      if (directMatch != null) {
+        usedVoices.add(directMatch)
+        directMatch
+      } else {
+        val candidatePool = cleanedAvailable.filter { it !in usedVoices && it !in reservedVoices }
+          .ifEmpty { cleanedAvailable.filter { it !in usedVoices } }
+          .ifEmpty { cleanedAvailable }
+        val personaMatched = candidatePool.firstOrNull { personaForVoice(it) == host.persona }
+          ?: candidatePool.first()
+        usedVoices.add(personaMatched)
+        personaMatched
+      }
+    }
+  }
+}
+
 object PodcastCastCatalog {
   private val ENGLISH_FEMININE_NAMES = listOf(
     "Maya", "Claire", "Elena", "Nora", "Hannah", "Zoe",
@@ -235,6 +388,11 @@ object PodcastCastCatalog {
           GeminiCatalog.resolveValidVoice(settings.geminiHostBVoice, "Kore"),
           GeminiCatalog.resolveValidVoice(settings.geminiHostCVoice, "Aoede")
         )
+        PodcastTtsProvider.NEKOSPEAK -> listOf(
+          settings.nekoSpeakHostAVoice.trim().ifBlank { "af_heart" },
+          settings.nekoSpeakHostBVoice.trim().ifBlank { "am_adam" },
+          settings.nekoSpeakHostCVoice.trim().ifBlank { "af_bella" }
+        )
         PodcastTtsProvider.AZURE_SPEECH -> {
           if (language == PodcastLanguage.SWEDISH &&
             settings.azureHostAVoice.startsWith("en-", ignoreCase = true)
@@ -268,6 +426,7 @@ object PodcastCastCatalog {
       return manualNames.mapIndexed { index, name ->
         val voice = manualVoices.getOrElse(index) { "" }
         val persona = GeminiCatalog.voiceOptionFor(voice)?.persona
+          ?: NekoSpeakCatalog.personaForVoice(voice)
           ?: if (index % 2 == 0) VoicePersona.MASCULINE else VoicePersona.FEMININE
         AssignedHostVoice(
           hostIndex = index,
@@ -304,6 +463,14 @@ object PodcastCastCatalog {
             .random(random)
           usedVoices.add(chosen.name)
           chosen.name
+        }
+        PodcastTtsProvider.NEKOSPEAK -> {
+          val matching = NekoSpeakCatalog.PREBUILT_VOICES
+            .filter { it.persona == persona && it.id !in usedVoices }
+          val chosen = (matching.ifEmpty { NekoSpeakCatalog.PREBUILT_VOICES.filter { it.id !in usedVoices } })
+            .random(random)
+          usedVoices.add(chosen.id)
+          chosen.id
         }
         PodcastTtsProvider.AZURE_SPEECH -> {
           val pool = if (language == PodcastLanguage.SWEDISH) AZURE_SWEDISH_VOICES else AZURE_ENGLISH_VOICES
@@ -494,5 +661,9 @@ data class AppSettings(
   val androidHostBVoice: String = "", // empty = auto-select distinct voice 2
   val androidHostCVoice: String = "", // empty = auto-select distinct voice 3
   val androidSpeechRate: Float = 1.0f,
-  val androidSpeechPitch: Float = 1.0f
+  val androidSpeechPitch: Float = 1.0f,
+  val nekoSpeakHostAVoice: String = "af_heart",
+  val nekoSpeakHostBVoice: String = "am_adam",
+  val nekoSpeakHostCVoice: String = "af_bella",
+  val nekoSpeakSpeechRate: Float = 1.0f
 )

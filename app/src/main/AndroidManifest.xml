@@ -30,6 +30,8 @@
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
+        <!-- Allow querying and launching NekoSpeak on-device AI TTS app & voice manager -->
+        <package android:name="com.nekospeak.tts" />
     </queries>
 
     <application

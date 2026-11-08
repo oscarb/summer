@@ -203,11 +203,13 @@ import androidx.compose.ui.text.input.VisualTransformation
 import kotlin.math.roundToInt
 import se.oscarb.summer.data.AiBackend
 import se.oscarb.summer.data.GeminiCatalog
+import se.oscarb.summer.data.NekoSpeakCatalog
 import se.oscarb.summer.data.OnDeviceTtsCatalog
 import se.oscarb.summer.data.PodcastTtsProvider
 import se.oscarb.summer.data.TtsVoiceOption
 import se.oscarb.summer.data.LinkFilter
 import se.oscarb.summer.data.PodcastCastCatalog
+import android.net.Uri
 import se.oscarb.summer.data.PodcastLanguage
 import se.oscarb.summer.data.PodcastStyle
 import se.oscarb.summer.data.SavedWebsite
@@ -1829,6 +1831,14 @@ internal fun SettingsTab(
           onClick = { onUpdateSettings { it.copy(podcastTtsProvider = PodcastTtsProvider.GEMINI_MULTISPEAKER) } }
         )
         SettingsRadioCard(
+          selected = settings.podcastTtsProvider == PodcastTtsProvider.NEKOSPEAK,
+          title = "NekoSpeak On-Device AI TTS",
+          subtitle = "Private offline neural voices (Kokoro, Pocket-TTS, KittenTTS & Piper)",
+          badgeText = "OFFLINE AI",
+          codeTag = NekoSpeakCatalog.PACKAGE_NAME,
+          onClick = { onUpdateSettings { it.copy(podcastTtsProvider = PodcastTtsProvider.NEKOSPEAK) } }
+        )
+        SettingsRadioCard(
           selected = settings.podcastTtsProvider == PodcastTtsProvider.ANDROID_ON_DEVICE,
           title = "Android On-Device Multi-Voice TTS",
           subtitle = "100% free & offline system voices",
@@ -2031,6 +2041,11 @@ internal fun SettingsTab(
             Spacer(modifier = Modifier.height(8.dp))
             VerificationStatusBox(message = msg, isError = verification.ttsIsError)
           }
+        } else if (settings.podcastTtsProvider == PodcastTtsProvider.NEKOSPEAK) {
+          NekoSpeakTtsSettingsSection(
+            settings = settings,
+            onUpdateSettings = onUpdateSettings
+          )
         } else if (settings.podcastTtsProvider == PodcastTtsProvider.ANDROID_ON_DEVICE) {
           AndroidOnDeviceTtsSettingsSection(
             settings = settings,
@@ -3075,6 +3090,257 @@ private fun AndroidOnDeviceTtsSettingsSection(
     onValueChange = { pitch -> draftPitch = pitch },
     onValueChangeFinished = {
       onUpdateSettings { it.copy(androidSpeechPitch = draftPitch) }
+    },
+    valueRange = 0.5f..2.0f,
+    steps = 14,
+    colors = SliderDefaults.colors(
+      thumbColor = SummerPrimaryContainer,
+      activeTrackColor = SummerPrimaryContainer,
+      inactiveTrackColor = SummerSurfaceContainerHigh
+    )
+  )
+}
+
+@Composable
+private fun NekoSpeakTtsSettingsSection(
+  settings: AppSettings,
+  onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit
+) {
+  val context = LocalContext.current
+  var refreshTick by remember { mutableIntStateOf(0) }
+  val isInstalled = remember(refreshTick) {
+    OnDeviceTtsCatalog.isEngineInstalled(context, NekoSpeakCatalog.PACKAGE_NAME)
+  }
+  var liveVoices by remember { mutableStateOf<List<TtsVoiceOption>>(emptyList()) }
+  var voicesLoading by remember { mutableStateOf(false) }
+
+  LaunchedEffect(isInstalled, refreshTick) {
+    if (isInstalled) {
+      voicesLoading = true
+      liveVoices = OnDeviceTtsCatalog.availableVoices(context, NekoSpeakCatalog.PACKAGE_NAME)
+      voicesLoading = false
+    } else {
+      liveVoices = emptyList()
+      voicesLoading = false
+    }
+  }
+
+  val voiceDropdownOptions = remember(liveVoices) {
+    val combined = LinkedHashMap<String, String>()
+    liveVoices.forEach { v ->
+      combined[v.name] = "Active in NekoSpeak • ${v.label}"
+    }
+    NekoSpeakCatalog.PREBUILT_VOICES.forEach { preset ->
+      if (!combined.containsKey(preset.id)) {
+        combined[preset.id] = "${preset.displayLabel} (${preset.id})"
+      }
+    }
+    combined.entries.map { it.key to it.value }
+  }
+
+  Text(
+    text = "NekoSpeak On-Device AI TTS",
+    style = MaterialTheme.typography.bodyLarge.copy(
+      fontFamily = ManropeFontFamily,
+      fontWeight = FontWeight.SemiBold,
+      fontSize = 14.sp
+    ),
+    color = SummerOnSurface
+  )
+  Spacer(modifier = Modifier.height(4.dp))
+  Text(
+    text = "100% private, offline neural TTS powered by ONNX Runtime & sherpa-onnx. Supports Kokoro v1.0 (28 voices), Kyutai Pocket-TTS (with zero-shot voice cloning), Kitten TTS Nano, and Piper voices — automatically pairing contrasting voices across podcast hosts.",
+    style = MaterialTheme.typography.bodySmall.copy(
+      fontFamily = ManropeFontFamily,
+      fontSize = 12.sp,
+      lineHeight = 17.sp
+    ),
+    color = SummerOnSurfaceVariant
+  )
+  Spacer(modifier = Modifier.height(10.dp))
+
+  VerificationStatusBox(
+    message = if (isInstalled) {
+      if (liveVoices.isNotEmpty()) {
+        "NekoSpeak (${NekoSpeakCatalog.PACKAGE_NAME}) is installed • ${liveVoices.size} voice(s) detected from active engine."
+      } else {
+        "NekoSpeak (${NekoSpeakCatalog.PACKAGE_NAME}) is installed and ready for offline synthesis."
+      }
+    } else {
+      "NekoSpeak (${NekoSpeakCatalog.PACKAGE_NAME}) is not installed yet. Install the open-source APK from GitHub Releases to synthesize podcasts offline."
+    },
+    isError = !isInstalled
+  )
+
+  Spacer(modifier = Modifier.height(10.dp))
+
+  Row(
+    modifier = Modifier.fillMaxWidth(),
+    horizontalArrangement = Arrangement.spacedBy(8.dp)
+  ) {
+    if (isInstalled) {
+      FilledTonalButton(
+        onClick = {
+          OnDeviceTtsCatalog.openEngineSettings(context, NekoSpeakCatalog.PACKAGE_NAME)
+        },
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.weight(1f)
+      ) {
+        Icon(
+          imageVector = Icons.Default.RecordVoiceOver,
+          contentDescription = null,
+          modifier = Modifier.size(16.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+          text = "Open NekoSpeak",
+          fontFamily = ManropeFontFamily,
+          fontSize = 12.sp,
+          fontWeight = FontWeight.SemiBold
+        )
+      }
+    } else {
+      Button(
+        onClick = {
+          runCatching {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(NekoSpeakCatalog.RELEASES_URL)).apply {
+              addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+          }
+        },
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.buttonColors(
+          containerColor = SummerPrimaryContainer,
+          contentColor = SummerOnPrimaryContainer
+        ),
+        modifier = Modifier.weight(1f)
+      ) {
+        Icon(
+          imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+          contentDescription = null,
+          modifier = Modifier.size(16.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+          text = "Download NekoSpeak APK",
+          fontFamily = ManropeFontFamily,
+          fontSize = 12.sp,
+          fontWeight = FontWeight.SemiBold
+        )
+      }
+    }
+
+    OutlinedButton(
+      onClick = { refreshTick++ },
+      shape = RoundedCornerShape(12.dp)
+    ) {
+      Icon(
+        imageVector = Icons.Default.Refresh,
+        contentDescription = "Refresh NekoSpeak status",
+        modifier = Modifier.size(16.dp)
+      )
+      Spacer(Modifier.width(4.dp))
+      Text(
+        text = "Refresh",
+        fontFamily = ManropeFontFamily,
+        fontSize = 12.sp
+      )
+    }
+  }
+
+  if (!settings.randomizePodcastHosts) {
+    Spacer(modifier = Modifier.height(10.dp))
+
+    if (voicesLoading) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+        Spacer(Modifier.width(8.dp))
+        Text("Querying NekoSpeak voices...", style = MaterialTheme.typography.bodySmall)
+      }
+    } else {
+      val hostAVoice = settings.nekoSpeakHostAVoice.ifBlank { "af_heart" }
+      val hostBVoice = settings.nekoSpeakHostBVoice.ifBlank { "am_adam" }
+      val hostCVoice = settings.nekoSpeakHostCVoice.ifBlank { "af_bella" }
+
+      SettingsDropdownSelector(
+        label = "${settings.hostAName.ifBlank { "Host 1" }} NekoSpeak Voice",
+        selectedValue = hostAVoice,
+        selectedDisplay = voiceDropdownOptions.firstOrNull { it.first == hostAVoice }?.second
+          ?: NekoSpeakCatalog.voiceOptionFor(hostAVoice)?.displayLabel
+          ?: hostAVoice,
+        options = voiceDropdownOptions,
+        onSelect = { chosen ->
+          onUpdateSettings { it.copy(nekoSpeakHostAVoice = chosen) }
+        },
+        modifier = Modifier.fillMaxWidth()
+      )
+      Spacer(modifier = Modifier.height(8.dp))
+      SettingsDropdownSelector(
+        label = "${settings.hostBName.ifBlank { "Host 2" }} NekoSpeak Voice",
+        selectedValue = hostBVoice,
+        selectedDisplay = voiceDropdownOptions.firstOrNull { it.first == hostBVoice }?.second
+          ?: NekoSpeakCatalog.voiceOptionFor(hostBVoice)?.displayLabel
+          ?: hostBVoice,
+        options = voiceDropdownOptions,
+        onSelect = { chosen ->
+          onUpdateSettings { it.copy(nekoSpeakHostBVoice = chosen) }
+        },
+        modifier = Modifier.fillMaxWidth()
+      )
+      if (settings.podcastHostCount >= 3) {
+        Spacer(modifier = Modifier.height(8.dp))
+        SettingsDropdownSelector(
+          label = "${settings.hostCName.ifBlank { "Host 3" }} NekoSpeak Voice",
+          selectedValue = hostCVoice,
+          selectedDisplay = voiceDropdownOptions.firstOrNull { it.first == hostCVoice }?.second
+            ?: NekoSpeakCatalog.voiceOptionFor(hostCVoice)?.displayLabel
+            ?: hostCVoice,
+          options = voiceDropdownOptions,
+          onSelect = { chosen ->
+            onUpdateSettings { it.copy(nekoSpeakHostCVoice = chosen) }
+          },
+          modifier = Modifier.fillMaxWidth()
+        )
+      }
+    }
+  }
+
+  Spacer(modifier = Modifier.height(10.dp))
+
+  var draftRate by remember(settings.nekoSpeakSpeechRate) {
+    mutableFloatStateOf(settings.nekoSpeakSpeechRate)
+  }
+
+  Row(
+    modifier = Modifier.fillMaxWidth(),
+    horizontalArrangement = Arrangement.SpaceBetween,
+    verticalAlignment = Alignment.CenterVertically
+  ) {
+    Text(
+      text = "Speech Rate: ${"%.2f".format(draftRate)}x",
+      style = MaterialTheme.typography.bodySmall.copy(
+        fontFamily = ManropeFontFamily,
+        fontWeight = FontWeight.Medium
+      ),
+      color = SummerOnSurface
+    )
+    if (draftRate != 1.0f) {
+      TextButton(
+        onClick = {
+          draftRate = 1.0f
+          onUpdateSettings { it.copy(nekoSpeakSpeechRate = 1.0f) }
+        }
+      ) {
+        Text("Reset 1.0x", fontFamily = ManropeFontFamily, fontSize = 12.sp, color = SummerPrimary)
+      }
+    }
+  }
+  Slider(
+    value = draftRate,
+    onValueChange = { rate -> draftRate = rate },
+    onValueChangeFinished = {
+      onUpdateSettings { it.copy(nekoSpeakSpeechRate = draftRate) }
     },
     valueRange = 0.5f..2.0f,
     steps = 14,
