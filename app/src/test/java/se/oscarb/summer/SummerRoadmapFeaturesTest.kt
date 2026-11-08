@@ -11,6 +11,7 @@ import org.junit.Test
 import se.oscarb.summer.data.AppSettings
 import se.oscarb.summer.data.AssignedHostVoice
 import se.oscarb.summer.data.DialogueTurn
+import se.oscarb.summer.data.NekoSpeakCatalog
 import se.oscarb.summer.data.PodcastCastCatalog
 import se.oscarb.summer.data.PodcastLanguage
 import se.oscarb.summer.data.PodcastTtsProvider
@@ -259,5 +260,69 @@ class SummerRoadmapFeaturesTest {
     val encoded = json.encodeToString(AppSettings.serializer(), customSettings)
     val decoded = json.decodeFromString(AppSettings.serializer(), encoded)
     assertTrue(decoded.removeWhenOpenedFromNotification)
+  }
+
+  @Test
+  fun nekoSpeakCatalog_resolvesPersonasAndMapsCrossEngineVoicesForMultiHostCast() {
+    assertEquals(VoicePersona.FEMININE, NekoSpeakCatalog.personaForVoice("af_heart"))
+    assertEquals(VoicePersona.MASCULINE, NekoSpeakCatalog.personaForVoice("am_adam"))
+    assertEquals(VoicePersona.FEMININE, NekoSpeakCatalog.personaForVoice("fantine"))
+    assertEquals(VoicePersona.MASCULINE, NekoSpeakCatalog.personaForVoice("alba"))
+    assertEquals(VoicePersona.FEMININE, NekoSpeakCatalog.personaForVoice("expr-voice-3-f"))
+    assertEquals(VoicePersona.MASCULINE, NekoSpeakCatalog.personaForVoice("expr-voice-3-m"))
+    assertEquals(VoicePersona.MASCULINE, NekoSpeakCatalog.personaForVoice("celebrity_obama"))
+
+    val cast = listOf(
+      AssignedHostVoice(0, "Maya", "af_heart", VoicePersona.FEMININE),
+      AssignedHostVoice(1, "Alex", "am_adam", VoicePersona.MASCULINE),
+      AssignedHostVoice(2, "Claire", "af_bella", VoicePersona.FEMININE)
+    )
+
+    // When Kokoro is active in NekoSpeak, exact voices are preserved
+    val kokoroVoices = listOf("af_heart", "af_bella", "am_adam", "am_puck")
+    assertEquals(
+      listOf("af_heart", "am_adam", "af_bella"),
+      NekoSpeakCatalog.resolveVoicesForActiveEngine(cast, kokoroVoices)
+    )
+
+    // When Pocket-TTS is active in NekoSpeak, cast personas automatically map to distinct Pocket-TTS voices
+    val pocketVoices = listOf("alba", "fantine", "marius", "cosette", "javert", "eponine")
+    val resolvedPocket = NekoSpeakCatalog.resolveVoicesForActiveEngine(cast, pocketVoices)
+    assertEquals(3, resolvedPocket.toSet().size)
+    assertEquals(VoicePersona.FEMININE, NekoSpeakCatalog.personaForVoice(resolvedPocket[0]))
+    assertEquals(VoicePersona.MASCULINE, NekoSpeakCatalog.personaForVoice(resolvedPocket[1]))
+    assertEquals(VoicePersona.FEMININE, NekoSpeakCatalog.personaForVoice(resolvedPocket[2]))
+  }
+
+  @Test
+  fun podcastCastCatalog_selectsNekoSpeakVoicesInRandomizedAndManualModes() {
+    val randomSettings = AppSettings(
+      podcastTtsProvider = PodcastTtsProvider.NEKOSPEAK,
+      podcastHostCount = 3,
+      randomizePodcastHosts = true
+    )
+    val randomCast = PodcastCastCatalog.selectEpisodeCast(randomSettings, Random(7))
+    assertEquals(3, randomCast.size)
+    assertEquals(3, randomCast.map { it.voiceId }.toSet().size)
+    assertTrue(randomCast[0].persona != randomCast[1].persona)
+    assertTrue(randomCast[1].persona != randomCast[2].persona)
+
+    val manualSettings = AppSettings(
+      podcastTtsProvider = PodcastTtsProvider.NEKOSPEAK,
+      podcastHostCount = 2,
+      randomizePodcastHosts = false,
+      hostAName = "Nora",
+      hostBName = "Leo",
+      nekoSpeakHostAVoice = "fantine",
+      nekoSpeakHostBVoice = "alba"
+    )
+    val manualCast = PodcastCastCatalog.selectEpisodeCast(manualSettings)
+    assertEquals(2, manualCast.size)
+    assertEquals("Nora", manualCast[0].name)
+    assertEquals("fantine", manualCast[0].voiceId)
+    assertEquals(VoicePersona.FEMININE, manualCast[0].persona)
+    assertEquals("Leo", manualCast[1].name)
+    assertEquals("alba", manualCast[1].voiceId)
+    assertEquals(VoicePersona.MASCULINE, manualCast[1].persona)
   }
 }

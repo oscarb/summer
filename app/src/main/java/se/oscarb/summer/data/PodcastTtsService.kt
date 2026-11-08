@@ -10,6 +10,7 @@ import android.util.Base64
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -80,6 +81,10 @@ class PodcastTtsService(private val appContext: Context) {
         PodcastTtsProvider.GEMINI_MULTISPEAKER -> {
           onProgress("Synthesizing ${cast.size}-host audio with Gemini TTS...")
           synthesizeWithGeminiMultiSpeaker(turns, cast, language, outputWavFile, settings, onProgress)
+        }
+        PodcastTtsProvider.NEKOSPEAK -> {
+          onProgress("Synthesizing ${cast.size}-host audio with NekoSpeak AI TTS...")
+          synthesizeWithNekoSpeak(turns, cast, language, outputWavFile, settings, onProgress)
         }
         PodcastTtsProvider.ANDROID_ON_DEVICE -> {
           onProgress("Synthesizing ${cast.size}-host audio on-device...")
@@ -971,10 +976,119 @@ class PodcastTtsService(private val appContext: Context) {
     }.getOrElse { List(preferredVoiceNames.size) { null } }
   }
 
+  private suspend fun synthesizeWithNekoSpeak(
+    turns: List<DialogueTurn>,
+    cast: List<AssignedHostVoice>,
+    language: PodcastLanguage,
+    outputWavFile: File,
+    settings: AppSettings,
+    onProgress: (String) -> Unit
+  ): PodcastAudioResult {
+    if (!OnDeviceTtsCatalog.isEngineInstalled(appContext, NekoSpeakCatalog.PACKAGE_NAME)) {
+      throw IllegalStateException(
+        "NekoSpeak (${NekoSpeakCatalog.PACKAGE_NAME}) is not installed on this device. " +
+          "Download it from ${NekoSpeakCatalog.RELEASES_URL} or enable Auto-fallback to On-Device TTS."
+      )
+    }
+
+    val tempDir = File(appContext.cacheDir, "tts_nekospeak_${UUID.randomUUID()}")
+    tempDir.mkdirs()
+
+    var ttsInstance: TextToSpeech? = null
+    try {
+      val targetLocale = Locale.forLanguageTag(language.bcp47Tag)
+      val tts = initAndroidTts(appContext, NekoSpeakCatalog.PACKAGE_NAME, targetLocale)
+      ttsInstance = tts
+
+      val allVoices = awaitEngineVoices(tts)
+      val resolvedVoiceIds = NekoSpeakCatalog.resolveVoicesForActiveEngine(
+        cast = cast,
+        availableVoiceNames = allVoices.map { it.name }
+      )
+      val baseRate = settings.nekoSpeakSpeechRate.coerceIn(0.5f, 2.0f)
+      tts.setPitch(1.0f)
+      tts.setSpeechRate(baseRate)
+
+      val turnFiles = mutableListOf<File>()
+
+      turns.forEachIndexed { index, turn ->
+        onProgress("NekoSpeak AI TTS: Synthesizing turn ${index + 1}/${turns.size} (${turn.speaker})...")
+        val hostIdx = turn.hostIndex.coerceIn(0, (resolvedVoiceIds.size - 1).coerceAtLeast(0))
+        val targetVoiceName = resolvedVoiceIds.getOrElse(hostIdx) { "af_heart" }
+        val matchedVoice = allVoices.firstOrNull { it.name.equals(targetVoiceName, ignoreCase = true) }
+        if (matchedVoice != null) {
+          runCatching { tts.voice = matchedVoice }
+        }
+        val effectiveVoiceName = matchedVoice?.name ?: targetVoiceName
+
+        val subChunks = PodcastScriptParser.chunkTurnText(
+          turn.text,
+          maxChars = PodcastScriptParser.DEFAULT_MAX_TURN_CHUNK_CHARS
+        )
+        if (subChunks.isEmpty()) return@forEachIndexed
+
+        val turnFile = File(tempDir, "turn_$index.wav")
+        if (subChunks.size == 1) {
+          synthesizeSingleUtteranceToFile(tts, subChunks[0], turnFile, voiceName = effectiveVoiceName)
+        } else {
+          val subFiles = mutableListOf<File>()
+          subChunks.forEachIndexed { subIdx, chunkText ->
+            val subFile = File(tempDir, "turn_${index}_part_$subIdx.wav")
+            synthesizeSingleUtteranceToFile(tts, chunkText, subFile, voiceName = effectiveVoiceName)
+            if (subFile.exists() && subFile.length() > 44) {
+              subFiles.add(subFile)
+            }
+          }
+          if (subFiles.isNotEmpty()) {
+            WavAudioUtils.stitchWavFiles(
+              inputWavFiles = subFiles,
+              outputFile = turnFile,
+              pauseMs = 90
+            )
+          }
+        }
+
+        if (turnFile.exists() && turnFile.length() > 44) {
+          turnFiles.add(turnFile)
+        }
+      }
+
+      if (turnFiles.isEmpty()) {
+        throw IllegalStateException("NekoSpeak TTS produced no audio output. Open NekoSpeak and ensure a voice model is downloaded.")
+      }
+
+      WavAudioUtils.stitchWavFiles(
+        inputWavFiles = turnFiles,
+        outputFile = outputWavFile,
+        pauseMs = 240
+      )
+
+      return PodcastAudioResult(
+        audioFile = outputWavFile,
+        providerUsed = "NekoSpeak AI TTS (${resolvedVoiceIds.distinct().joinToString(", ")})",
+        turnsCount = turns.size
+      )
+    } finally {
+      runCatching { ttsInstance?.stop() }
+      runCatching { ttsInstance?.shutdown() }
+      tempDir.deleteRecursively()
+    }
+  }
+
+  private suspend fun awaitEngineVoices(tts: TextToSpeech): Set<Voice> {
+    repeat(12) {
+      val voices = runCatching { tts.voices.orEmpty() }.getOrDefault(emptySet())
+      if (voices.isNotEmpty()) return voices
+      delay(250L)
+    }
+    return runCatching { tts.voices.orEmpty() }.getOrDefault(emptySet())
+  }
+
   private suspend fun synthesizeSingleUtteranceToFile(
     tts: TextToSpeech,
     text: String,
-    destFile: File
+    destFile: File,
+    voiceName: String? = null
   ) = suspendCancellableCoroutine<Unit> { cont ->
     val utteranceId = "utt_${UUID.randomUUID()}"
     tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -1011,6 +1125,9 @@ class PodcastTtsService(private val appContext: Context) {
     })
 
     val params = Bundle()
+    if (!voiceName.isNullOrBlank()) {
+      params.putString(TextToSpeech.Engine.KEY_PARAM_VOICE_NAME, voiceName)
+    }
     val res = tts.synthesizeToFile(text, params, destFile, utteranceId)
     if (res != TextToSpeech.SUCCESS && cont.isActive) {
       cont.resumeWithException(IllegalStateException("TextToSpeech.synthesizeToFile returned error $res"))
@@ -1042,14 +1159,47 @@ object OnDeviceTtsCatalog {
       .sortedBy { it.label.lowercase() }
   }.getOrDefault(emptyList())
 
+  fun isEngineInstalled(context: Context, packageName: String): Boolean {
+    val cleanPkg = packageName.trim()
+    if (cleanPkg.isEmpty()) return false
+    if (installedEngines(context).any { it.packageName.equals(cleanPkg, ignoreCase = true) }) {
+      return true
+    }
+    return runCatching {
+      context.packageManager.getPackageInfo(cleanPkg, 0)
+      true
+    }.getOrDefault(false)
+  }
+
+  fun openEngineSettings(context: Context, packageName: String): Boolean {
+    val cleanPkg = packageName.trim()
+    if (cleanPkg.isEmpty()) return false
+    val configureIntent = Intent("android.speech.tts.engine.CONFIGURE_ENGINE").apply {
+      setPackage(cleanPkg)
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    if (runCatching { context.startActivity(configureIntent); true }.getOrDefault(false)) {
+      return true
+    }
+    val launchIntent = runCatching {
+      context.packageManager.getLaunchIntentForPackage(cleanPkg)?.apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+    }.getOrNull() ?: return false
+    return runCatching { context.startActivity(launchIntent); true }.getOrDefault(false)
+  }
+
   suspend fun availableVoices(
     context: Context,
     enginePackage: String
   ): List<TtsVoiceOption> = withContext(Dispatchers.Main) {
     var tts: TextToSpeech? = null
     try {
-      val deferred = CompletableDeferred<Int>()
       val enginePkg = enginePackage.trim().ifBlank { null }
+      if (enginePkg != null && !isEngineInstalled(context, enginePkg)) {
+        return@withContext emptyList()
+      }
+      val deferred = CompletableDeferred<Int>()
       val created = TextToSpeech(
         context.applicationContext,
         { status -> deferred.complete(status) },
@@ -1059,6 +1209,13 @@ object OnDeviceTtsCatalog {
 
       val status = withTimeoutOrNull(10_000L) { deferred.await() }
       if (status != TextToSpeech.SUCCESS) return@withContext emptyList()
+
+      if (enginePkg == NekoSpeakCatalog.PACKAGE_NAME && created.voices.isNullOrEmpty()) {
+        repeat(10) {
+          if (!created.voices.isNullOrEmpty()) return@repeat
+          delay(250L)
+        }
+      }
 
       val defaultLang = Locale.getDefault().language
       val matching = created.voices.orEmpty().filter { voice ->
@@ -1073,16 +1230,22 @@ object OnDeviceTtsCatalog {
       matching
         .sortedWith(compareByDescending<Voice> { it.quality }.thenBy { it.locale.displayName }.thenBy { it.name })
         .map { voice ->
-          val qualityLabel = when (voice.quality) {
-            Voice.QUALITY_VERY_HIGH -> "Very high"
-            Voice.QUALITY_HIGH -> "High"
-            Voice.QUALITY_NORMAL -> "Normal"
-            Voice.QUALITY_LOW -> "Low"
-            else -> "Standard"
+          val nekoKnown = NekoSpeakCatalog.voiceOptionFor(voice.name)
+          val label = if (nekoKnown != null) {
+            "${nekoKnown.displayLabel} (${voice.name})"
+          } else {
+            val qualityLabel = when (voice.quality) {
+              Voice.QUALITY_VERY_HIGH -> "Very high"
+              Voice.QUALITY_HIGH -> "High"
+              Voice.QUALITY_NORMAL -> "Normal"
+              Voice.QUALITY_LOW -> "Low"
+              else -> "Standard"
+            }
+            "${voice.locale.displayName} • $qualityLabel (${voice.name})"
           }
           TtsVoiceOption(
             name = voice.name,
-            label = "${voice.locale.displayName} • $qualityLabel (${voice.name})"
+            label = label
           )
         }
         .distinctBy { it.name }
