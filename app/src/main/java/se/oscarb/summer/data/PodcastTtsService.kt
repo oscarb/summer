@@ -1126,7 +1126,7 @@ class PodcastTtsService(private val appContext: Context) {
 
     val params = Bundle()
     if (!voiceName.isNullOrBlank()) {
-      params.putString(TextToSpeech.Engine.KEY_PARAM_VOICE_NAME, voiceName)
+      params.putString("voiceName", voiceName)
     }
     val res = tts.synthesizeToFile(text, params, destFile, utteranceId)
     if (res != TextToSpeech.SUCCESS && cont.isActive) {
