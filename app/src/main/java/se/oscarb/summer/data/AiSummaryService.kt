@@ -45,26 +45,54 @@ class AiSummaryService(private val appContext: Context) {
   ): Result<String> = withContext(Dispatchers.IO) {
     val contentSnippet = website.extractedContent.ifBlank {
       "(Article body could not be fully extracted; summarize based on the title and URL context.)"
-    }.take(12_000)
+    }.take(14_000)
 
-    val prompt = """
-      You are a concise, insightful reading assistant inside the "Summer" Android app.
-      Summarize the following saved web page so the user can quickly catch up on what it's about and its key takeaways.
-      
-      Format your response in clean Markdown:
-      - Start directly with a crisp 1-2 sentence overview (do NOT include "TL;DR" or prefix with TL;DR).
-      - Follow with 3-5 Markdown bullet points (`- **Lead takeaway**: ...`) covering the most important facts, arguments, or insights.
-      - Keep it scannable, accurate, and free of filler phrases.
-      
-      Title: ${website.title}
-      URL: ${website.url}
-      Domain: ${website.domain}
-      
-      Extracted Page Content:
-      $contentSnippet
-    """.trimIndent()
+    val isYouTube = YouTubeExtractor.isYouTubeUrl(website.url)
+    val prompt = if (isYouTube) {
+      """
+        You are a concise, insightful reading assistant inside the "Summer" Android app.
+        Summarize the following YouTube video so the user can quickly catch up on what it covers, its main arguments, and key takeaways.
+        
+        Format your response in clean Markdown:
+        - Start directly with a crisp 1-2 sentence overview of what the video covers and why it matters (do NOT include "TL;DR" or prefix with TL;DR).
+        - Follow with 3-5 Markdown bullet points (`- **Lead takeaway**: ...`) highlighting key insights, arguments, or demonstrated steps.
+        - Mention notable timestamped moments or chapters if present in the transcript.
+        - Keep it scannable, accurate, and free of filler phrases.
+        
+        Title: ${website.title}
+        URL: ${website.url}
+        Domain: ${website.domain}
+        
+        Video Content & Spoken Transcript:
+        $contentSnippet
+      """.trimIndent()
+    } else {
+      """
+        You are a concise, insightful reading assistant inside the "Summer" Android app.
+        Summarize the following saved web page so the user can quickly catch up on what it's about and its key takeaways.
+        
+        Format your response in clean Markdown:
+        - Start directly with a crisp 1-2 sentence overview (do NOT include "TL;DR" or prefix with TL;DR).
+        - Follow with 3-5 Markdown bullet points (`- **Lead takeaway**: ...`) covering the most important facts, arguments, or insights.
+        - Keep it scannable, accurate, and free of filler phrases.
+        
+        Title: ${website.title}
+        URL: ${website.url}
+        Domain: ${website.domain}
+        
+        Extracted Page Content:
+        $contentSnippet
+      """.trimIndent()
+    }
 
-    generateWithSelectedBackend(prompt, settings).map { raw ->
+    val ytVideoUrl = if (isYouTube) {
+      val videoId = YouTubeExtractor.extractVideoId(website.url)
+      if (videoId != null) YouTubeExtractor.defaultWatchUrl(videoId) else website.url
+    } else {
+      null
+    }
+
+    generateWithSelectedBackend(prompt, settings, videoUri = ytVideoUrl).map { raw ->
       raw.replaceFirst(Regex("""^\s*(\*{1,2})?\s*TL;?DR:?\s*(\*{1,2})?:?\s*""", RegexOption.IGNORE_CASE), "").trimStart()
     }
   }
@@ -102,10 +130,12 @@ class AiSummaryService(private val appContext: Context) {
     }
 
     val itemsBlock = websites.mapIndexed { index, site ->
+      val isYt = YouTubeExtractor.isYouTubeUrl(site.url)
+      val itemLabel = if (isYt) "VIDEO / TALK" else "ARTICLE"
       val body = site.summary?.let { "Key Summary:\n$it" }
         ?: site.extractedContent.take(3_200).ifBlank { "(Title/URL only)" }
       """
-      ARTICLE ${index + 1}: "${site.title}" (from ${site.domain})
+      $itemLabel ${index + 1}: "${site.title}" (from ${site.domain})
       $body
       """.trimIndent()
     }.joinToString("\n\n")
@@ -319,10 +349,11 @@ class AiSummaryService(private val appContext: Context) {
   private suspend fun generateWithSelectedBackend(
     prompt: String,
     settings: AppSettings,
-    allowCapacityFallback: Boolean = true
+    allowCapacityFallback: Boolean = true,
+    videoUri: String? = null
   ): Result<String> {
     return try {
-      val text = executeBackend(prompt, settings.selectedBackend, settings, allowCapacityFallback)
+      val text = executeBackend(prompt, settings.selectedBackend, settings, allowCapacityFallback, videoUri)
       if (text.isBlank()) {
         Result.failure(IllegalStateException("AI provider returned an empty summary."))
       } else {
@@ -355,7 +386,7 @@ class AiSummaryService(private val appContext: Context) {
       for (fallback in fallbacks) {
         try {
           Log.i(TAG, "Falling back to backend: $fallback")
-          val text = executeBackend(prompt, fallback, settings, allowCapacityFallback)
+          val text = executeBackend(prompt, fallback, settings, allowCapacityFallback, videoUri = null)
           if (text.isNotBlank()) {
             return Result.success(text.trim())
           }
@@ -373,7 +404,8 @@ class AiSummaryService(private val appContext: Context) {
     prompt: String,
     backend: AiBackend,
     settings: AppSettings,
-    allowCapacityFallback: Boolean
+    allowCapacityFallback: Boolean,
+    videoUri: String? = null
   ): String {
     return when (backend) {
       AiBackend.FIREBASE_AI -> callFirebaseAiLogic(
@@ -385,7 +417,8 @@ class AiSummaryService(private val appContext: Context) {
         prompt = prompt,
         apiKey = settings.directGeminiApiKey.trim(),
         model = settings.directGeminiModel.trim().ifBlank { "gemini-3.8-flash" },
-        allowCapacityFallback = allowCapacityFallback
+        allowCapacityFallback = allowCapacityFallback,
+        videoUri = videoUri
       )
       AiBackend.GEMINI_NANO_ON_DEVICE -> callOnDeviceGeminiNano(prompt)
       AiBackend.OPENAI_COMPATIBLE -> callOpenAiCompatibleApi(
@@ -427,16 +460,17 @@ class AiSummaryService(private val appContext: Context) {
     prompt: String,
     apiKey: String,
     model: String,
-    allowCapacityFallback: Boolean = true
+    allowCapacityFallback: Boolean = true,
+    videoUri: String? = null
   ): String {
     if (apiKey.isBlank()) {
       throw IllegalStateException("Direct Gemini API key is missing. Add it in Settings or switch to Firebase AI Logic.")
     }
     return try {
-      executeDirectGeminiHttpCall(prompt = prompt, apiKey = apiKey, model = model)
+      executeDirectGeminiHttpCall(prompt = prompt, apiKey = apiKey, model = model, videoUri = videoUri)
     } catch (e: Exception) {
       if (allowCapacityFallback && isTransientCapacityOrRateLimitError(e) && model != "gemini-3.5-flash") {
-        executeDirectGeminiHttpCall(prompt = prompt, apiKey = apiKey, model = "gemini-3.5-flash")
+        executeDirectGeminiHttpCall(prompt = prompt, apiKey = apiKey, model = "gemini-3.5-flash", videoUri = videoUri)
       } else {
         throw e
       }
@@ -458,7 +492,12 @@ class AiSummaryService(private val appContext: Context) {
       combined.contains("timed out")
   }
 
-  private fun executeDirectGeminiHttpCall(prompt: String, apiKey: String, model: String): String {
+  private fun executeDirectGeminiHttpCall(
+    prompt: String,
+    apiKey: String,
+    model: String,
+    videoUri: String? = null
+  ): String {
     val endpoint =
       "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
 
@@ -466,6 +505,14 @@ class AiSummaryService(private val appContext: Context) {
       put("contents", buildJsonArray {
         add(buildJsonObject {
           put("parts", buildJsonArray {
+            if (!videoUri.isNullOrBlank()) {
+              add(buildJsonObject {
+                put("fileData", buildJsonObject {
+                  put("fileUri", JsonPrimitive(videoUri))
+                  put("mimeType", JsonPrimitive("video/*"))
+                })
+              })
+            }
             add(buildJsonObject {
               put("text", JsonPrimitive(prompt))
             })
@@ -483,6 +530,10 @@ class AiSummaryService(private val appContext: Context) {
     httpClient.newCall(request).execute().use { response ->
       val bodyStr = response.body?.string().orEmpty()
       if (!response.isSuccessful) {
+        // If request failed with videoUri (e.g. video unavailable/restricted), retry once with text-only prompt
+        if (!videoUri.isNullOrBlank()) {
+          return executeDirectGeminiHttpCall(prompt = prompt, apiKey = apiKey, model = model, videoUri = null)
+        }
         throw IllegalStateException("Gemini API HTTP ${response.code}: ${bodyStr.take(300)}")
       }
       val root = json.parseToJsonElement(bodyStr).jsonObject

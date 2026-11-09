@@ -101,6 +101,13 @@ object WebPageScraper {
   }
 
   suspend fun scrape(url: String): ScrapedPageData = withContext(Dispatchers.IO) {
+    if (YouTubeExtractor.isYouTubeUrl(url)) {
+      val ytData = YouTubeExtractor.scrapeYouTube(url)
+      if (ytData != null) {
+        return@withContext ytData
+      }
+    }
+
     val domain = extractDomain(url)
     val fallbackFavicon = defaultFaviconUrl(url)
 
